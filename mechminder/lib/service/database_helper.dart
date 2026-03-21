@@ -1,7 +1,12 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
+import 'api_service.dart';
+import '../core/api_constants.dart';
 
 class DatabaseHelper {
   static const _databaseName = "VehicleManager.db";
@@ -375,16 +380,75 @@ class DatabaseHelper {
   }
 
   // --- (All other helper functions) ---
-  Future<int> insertVehicle(Map<String, dynamic> row) async {
+  Future<int> insertVehicle(
+    Map<String, dynamic> row, {
+    List<int>? photoBytes,
+    String? photoName,
+  }) async {
+    try {
+      final Map<String, String> fields = {};
+      row.forEach((key, value) {
+        if (value != null) fields[key] = value.toString();
+      });
+
+      final res = await ApiService.registerVehicle(
+        fields,
+        photoBytes: photoBytes,
+        photoName: photoName,
+      );
+      if (res != null) return res['id'] ?? 1;
+    } catch (e) {
+      print('API Insert Vehicle Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.insert(tableVehicles, row);
   }
 
   Future<List<Map<String, dynamic>>> queryAllVehiclesWithNextReminder() async {
+    try {
+      final List<dynamic> data = await ApiService.getVehicles();
+      if (data.isNotEmpty) {
+        return data.map((v) {
+          final reminders = v['Reminders'] as List?;
+          final photos = v['Photos'] as List?;
+          final r = (reminders != null && reminders.isNotEmpty)
+              ? reminders.first
+              : null;
+          final p = (photos != null && photos.isNotEmpty) ? photos.first : null;
+
+          return <String, dynamic>{
+            columnId: v['id'],
+            columnMake: v['make'],
+            columnModel: v['model'],
+            columnVariant: v['variant'],
+            columnPurchaseDate: v['purchase_date'],
+            columnFuelType: v['fuel_type'],
+            columnVehicleColor: v['vehicle_color'],
+            columnRegNo: v['reg_no'],
+            columnOwnerName: v['owner_name'],
+            columnInitialOdometer: v['initial_odometer'],
+            columnCurrentOdometer: v['current_odometer'],
+            columnOdometerUpdatedAt: v['odometer_updated_at'],
+            columnDueDate: r != null ? r['due_date'] : null,
+            columnDueOdometer: r != null ? r['due_odometer'] : null,
+            'template_name': r != null && r['ServiceTemplate'] != null
+                ? r['ServiceTemplate']['name']
+                : null,
+            'photo_uri': p != null && p['uri'] != null
+                ? '${ApiConstants.serverUrl}${p['uri']}'
+                : null,
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('API List Vehicles Error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     // We don't strictly filter by date >= today in the query because
-    // "Overdue" items (date < today) are actually the 'next' most important thing to show.
-    // Sorting by date ASC will put older dates (overdue) first.
 
     final String sql =
         '''
@@ -416,6 +480,34 @@ class DatabaseHelper {
   }
 
   Future<Map<String, dynamic>?> queryVehicleById(int id) async {
+    try {
+      final v = await ApiService.getVehicleById(id);
+      if (v != null) {
+        final photos = v['Photos'] as List?;
+        final p = (photos != null && photos.isNotEmpty) ? photos.first : null;
+        return <String, dynamic>{
+          columnId: v['id'],
+          columnMake: v['make'],
+          columnModel: v['model'],
+          columnVariant: v['variant'],
+          columnPurchaseDate: v['purchase_date'],
+          columnFuelType: v['fuel_type'],
+          columnVehicleColor: v['vehicle_color'],
+          columnRegNo: v['reg_no'],
+          columnOwnerName: v['owner_name'],
+          columnInitialOdometer: v['initial_odometer'],
+          columnCurrentOdometer: v['current_odometer'],
+          columnOdometerUpdatedAt: v['odometer_updated_at'],
+          'photo_uri': p != null && p['uri'] != null
+              ? '${ApiConstants.serverUrl}${p['uri']}'
+              : null,
+        };
+      }
+    } catch (e) {
+      print('API Get Vehicle Error: $e');
+    }
+    if (kIsWeb) return null;
+
     Database db = await instance.database;
     List<Map<String, dynamic>> result = await db.query(
       tableVehicles,
@@ -456,6 +548,32 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> queryServicesForVehicle(
     int vehicleId,
   ) async {
+    try {
+      final List<dynamic> data = await ApiService.getServicesForVehicle(
+        vehicleId,
+      );
+      if (data.isNotEmpty) {
+        return data.map((s) {
+          final vendor = s['Vendor'];
+          final items = s['ServiceItems'] as List?;
+          return <String, dynamic>{
+            columnId: s['id'],
+            columnVehicleId: s['vehicle_id'],
+            columnVendorId: s['vendor_id'],
+            columnServiceDate: s['date'],
+            columnOdometer: s['odometer_at_service'],
+            columnTotalCost: s['total_cost'],
+            columnNotes: s['notes'],
+            'vendor_name': vendor != null ? vendor['name'] : 'Local Workshop',
+            'items_count': items != null ? items.length : 0,
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('API List Services Error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
 
     final String sql =
@@ -474,6 +592,13 @@ class DatabaseHelper {
   }
 
   Future<int> updateVehicleOdometer(int id, int newOdometer) async {
+    try {
+      await ApiService.updateOdometer(id, newOdometer);
+    } catch (e) {
+      print('API Odometer Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.update(
       tableVehicles,
@@ -492,11 +617,57 @@ class DatabaseHelper {
   }
 
   Future<int> insertVendor(Map<String, dynamic> row) async {
+    try {
+      final tokenRes = await http.post(
+        Uri.parse('http://192.168.27.58:5000/api/auth/token'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'deviceId': 'simulated-device-123'}),
+      );
+      if (tokenRes.statusCode == 200) {
+        final token = json.decode(tokenRes.body)['token'];
+        final res = await http.post(
+          Uri.parse('http://192.168.27.58:5000/api/vendors'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: json.encode({
+            'name': row[columnName],
+            'phone': row[columnPhone],
+            'address': row[columnAddress],
+          }),
+        );
+        if (res.statusCode == 201) return json.decode(res.body)['id'] ?? 1;
+      }
+    } catch (e) {
+      print('API Insert Vendor Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.insert(tableVendors, row);
   }
 
   Future<List<Map<String, dynamic>>> queryAllVendors() async {
+    try {
+      final List<dynamic> data = await ApiService.getVendors();
+      if (data.isNotEmpty) {
+        return data
+            .map(
+              (v) => <String, dynamic>{
+                columnId: v['id'],
+                columnName: v['name'] ?? '',
+                columnPhone: v['phone'] ?? '',
+                columnAddress: v['address'] ?? '',
+              },
+            )
+            .toList();
+      }
+    } catch (e) {
+      print('API Get Vendors Error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     return await db.query(tableVendors, orderBy: '$columnName ASC');
   }
@@ -521,6 +692,31 @@ class DatabaseHelper {
 
   // Queries all items for a specific service
   Future<List<Map<String, dynamic>>> queryServiceItems(int serviceId) async {
+    try {
+      final dynamic s = await ApiService.getServiceById(serviceId);
+      if (s != null) {
+        List<dynamic>? items = s['ServiceItems'];
+        if (items != null) {
+          return items
+              .map(
+                (i) => <String, dynamic>{
+                  columnId: i['id'],
+                  columnServiceId: i['service_id'],
+                  columnName: i['item_name'],
+                  columnQty: i['qty'] ?? 1.0,
+                  columnUnitCost: i['unit_cost'] ?? 0.0,
+                  columnTotalCost: i['total_cost'] ?? 0.0,
+                },
+              )
+              .toList();
+        }
+        return [];
+      }
+    } catch (e) {
+      print('API item fetch error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     return await db.query(
       tableServiceItems,
@@ -531,6 +727,14 @@ class DatabaseHelper {
 
   // Inserts a new reminder
   Future<int> insertReminder(Map<String, dynamic> row) async {
+    try {
+      final res = await ApiService.createReminder(row);
+      if (res != null) return res['id'] ?? 1;
+    } catch (e) {
+      print('API Post Reminder Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.insert(tableReminders, row);
   }
@@ -539,6 +743,33 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> queryRemindersForVehicle(
     int vehicleId,
   ) async {
+    try {
+      final List<dynamic> data = await ApiService.getRemindersForVehicle(
+        vehicleId,
+      );
+      if (data.isNotEmpty) {
+        return data
+            .map(
+              (r) => <String, dynamic>{
+                columnId: r['id'],
+                columnVehicleId: r['vehicle_id'],
+                columnTemplateId: r['template_id'],
+                columnDueDate: r['due_date'],
+                columnDueOdometer: r['due_odometer'],
+                columnStatus: r['status'],
+                columnNotes: r['notes'],
+                'template_name': r['ServiceTemplate'] != null
+                    ? r['ServiceTemplate']['name']
+                    : null,
+              },
+            )
+            .toList();
+      }
+    } catch (e) {
+      print('API List Reminders Error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
 
     // This query JOINS reminders with templates to get the name
@@ -549,8 +780,8 @@ class DatabaseHelper {
         t.$columnName AS template_name
       FROM $tableReminders r
       LEFT JOIN $tableServiceTemplates t ON r.$columnTemplateId = t.$columnId
-      WHERE r.$columnVehicleId = ? AND r.$columnStatus = 'pending'
-      ORDER BY r.$columnDueDate ASC, r.$columnDueOdometer ASC
+      WHERE r.$columnVehicleId = ?
+      ORDER BY r.$columnDueDate ASC
     ''';
 
     return await db.rawQuery(sql, [vehicleId]);
@@ -568,6 +799,14 @@ class DatabaseHelper {
 
   // Inserts a new expense
   Future<int> insertExpense(Map<String, dynamic> row) async {
+    try {
+      final res = await ApiService.createExpense(row);
+      if (res != null) return res['id'] ?? 1;
+    } catch (e) {
+      print('API Post Expense Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.insert(tableExpenses, row);
   }
@@ -576,12 +815,36 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> queryExpensesForVehicle(
     int vehicleId,
   ) async {
+    try {
+      final List<dynamic> data = await ApiService.getExpensesForVehicle(
+        vehicleId,
+      );
+      if (data.isNotEmpty) {
+        return data
+            .map(
+              (e) => <String, dynamic>{
+                columnId: e['id'],
+                columnVehicleId: e['vehicle_id'],
+                columnCategory: e['expense_type'],
+                columnTotalCost: e['amount'],
+                columnServiceDate: e['service_date'],
+                columnNotes: e['description'],
+                columnOdometer: e['odometer'],
+              },
+            )
+            .toList();
+      }
+    } catch (e) {
+      print('API List Expenses Error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     return await db.query(
       tableExpenses,
       where: '$columnVehicleId = ?',
       whereArgs: [vehicleId],
-      orderBy: '$columnServiceDate DESC', // Use the date column
+      orderBy: '$columnServiceDate DESC',
     );
   }
 
@@ -723,6 +986,14 @@ class DatabaseHelper {
 
   // Deletes a reminder by its ID
   Future<int> deleteReminder(int id) async {
+    try {
+      await ApiService.deleteReminder(id);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Delete Reminder Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.delete(
       tableReminders,
@@ -742,6 +1013,34 @@ class DatabaseHelper {
     int parentId,
     String parentType,
   ) async {
+    try {
+      if (parentType == 'vehicle') {
+        final dynamic v = await ApiService.getVehicleById(parentId);
+        if (v != null) {
+          List<dynamic>? photos = v['Photos'];
+          if (photos != null && photos.isNotEmpty) {
+            return photos
+                .map(
+                  (p) => <String, dynamic>{
+                    columnId: p['id'],
+                    columnParentType: p['parent_type'],
+                    columnParentId: p['parent_id'],
+                    columnUri: p['uri'] != null
+                        ? 'http://192.168.27.58:5000${p['uri']}'
+                        : '',
+                  },
+                )
+                .toList();
+          } else {
+            return [];
+          }
+        }
+      }
+    } catch (e) {
+      print('API photos error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     return await db.query(
       tablePhotos,
@@ -780,8 +1079,18 @@ class DatabaseHelper {
 
   // Updates an existing vehicle's details
   Future<int> updateVehicle(Map<String, dynamic> row) async {
-    Database db = await instance.database;
     int id = row[columnId];
+    try {
+      // Remove ID and filter out any items not in the backend model if necessary
+      final Map<String, dynamic> data = Map.from(row)..remove(columnId);
+      await ApiService.updateVehicle(id, data);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API update vehicle error: $e');
+    }
+    if (kIsWeb) return 1;
+
+    Database db = await instance.database;
     return await db.update(
       tableVehicles,
       row,
@@ -794,6 +1103,14 @@ class DatabaseHelper {
   // Thanks to "ON DELETE CASCADE" in our database, this will
   // ALSO delete all associated services, items, reminders, expenses, and photos.
   Future<int> deleteVehicle(int id) async {
+    try {
+      await ApiService.deleteVehicle(id);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Delete Vehicle Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.delete(
       tableVehicles,
@@ -803,6 +1120,31 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> queryAllRows(String tableName) async {
+    try {
+      if (tableName == tableVehicles) {
+        final List<dynamic> data = await ApiService.getVehicles();
+        return data.map((v) {
+          return <String, dynamic>{
+            columnId: v['id'],
+            columnMake: v['make'] ?? '',
+            columnModel: v['model'] ?? '',
+            columnRegNo: v['reg_no'] ?? '',
+          };
+        }).toList();
+      } else if (tableName == tableVendors) {
+        final List<dynamic> data = await ApiService.getVendors();
+        return data.map((v) {
+          return <String, dynamic>{
+            columnId: v['id'],
+            columnName: v['name'] ?? '',
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('API queryAllRows error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     return await db.query(tableName);
   }
@@ -1065,8 +1407,16 @@ class DatabaseHelper {
   }
 
   Future<int> updateExpense(Map<String, dynamic> row) async {
-    Database db = await instance.database;
     int id = row[columnId];
+    try {
+      await ApiService.updateExpense(id, row);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Update Expense Error: $e');
+    }
+    if (kIsWeb) return 1;
+
+    Database db = await instance.database;
     return await db.update(
       tableExpenses,
       row,
@@ -1077,6 +1427,14 @@ class DatabaseHelper {
 
   // Deletes an expense by its ID
   Future<int> deleteExpense(int id) async {
+    try {
+      await ApiService.deleteExpense(id);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Delete Expense Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.delete(
       tableExpenses,
@@ -1107,6 +1465,14 @@ class DatabaseHelper {
     String? newDueDate,
     int? newDueOdometer,
   ) async {
+    try {
+      await ApiService.updateReminder(id, newDueDate, newDueOdometer);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Update Reminder Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.update(
       tableReminders,
@@ -1147,8 +1513,16 @@ class DatabaseHelper {
   }
 
   Future<int> updateVendor(Map<String, dynamic> row) async {
-    Database db = await instance.database;
     int id = row[columnId];
+    try {
+      await ApiService.updateVendor(id, row);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Update Vendor Error: $e');
+    }
+    if (kIsWeb) return 1;
+
+    Database db = await instance.database;
     return await db.update(
       tableVendors,
       row,
@@ -1159,6 +1533,14 @@ class DatabaseHelper {
 
   // Deletes a vendor by its ID
   Future<int> deleteVendor(int id) async {
+    try {
+      await ApiService.deleteVendor(id);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Delete Vendor Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.delete(
       tableVendors,
@@ -1324,13 +1706,29 @@ class DatabaseHelper {
   // --- VEHICLE PAPERS-SPECIFIC METHODS ---
 
   Future<int> insertVehiclePaper(Map<String, dynamic> row) async {
+    try {
+      final res = await ApiService.createPaper(row);
+      if (res != null) return res['id'] ?? 1;
+    } catch (e) {
+      print('API Post Paper Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.insert(tableVehiclePapers, row);
   }
 
   Future<int> updateVehiclePaper(Map<String, dynamic> row) async {
-    Database db = await instance.database;
     int id = row[columnId];
+    try {
+      await ApiService.updatePaper(id, row);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API update paper error: $e');
+    }
+    if (kIsWeb) return 1;
+
+    Database db = await instance.database;
     return await db.update(
       tableVehiclePapers,
       row,
@@ -1340,6 +1738,14 @@ class DatabaseHelper {
   }
 
   Future<int> deleteVehiclePaper(int id) async {
+    try {
+      await ApiService.deletePaper(id);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API Delete Paper Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.delete(
       tableVehiclePapers,
@@ -1352,18 +1758,46 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> queryVehiclePapersForVehicle(
     int vehicleId,
   ) async {
+    try {
+      final List<dynamic> data = await ApiService.getPapersForVehicle(
+        vehicleId,
+      );
+      if (data.isNotEmpty) {
+        // Note: In SQLite we joined with Vehicles to get make/model.
+        // Here we can just assume we know the vehicle or fetch it if really needed.
+        // But usually the UI only needs the paper details.
+        return data
+            .map(
+              (p) => <String, dynamic>{
+                columnId: p['id'],
+                columnVehicleId: p['vehicle_id'],
+                columnPaperType: p['paper_type'],
+                columnReferenceNo: p['reference_no'],
+                columnProviderName: p['provider_name'],
+                columnDescription: p['description'],
+                columnCost: p['cost'],
+                columnPaperExpiryDate: p['paper_expiry_date'],
+                columnFilePath: p['file_path'],
+                columnCreatedAt: p['created_at'],
+              },
+            )
+            .toList();
+      }
+    } catch (e) {
+      print('API List Papers: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     final String sql =
         '''
-    SELECT 
-      d.*,
-      v.$columnMake, 
-      v.$columnModel
+    SELECT
+      d.*
     FROM $tableVehiclePapers d
     JOIN $tableVehicles v ON v.$columnId = d.$columnVehicleId
     WHERE d.$columnVehicleId = ?
     ORDER BY d.$columnPaperExpiryDate ASC
-  ''';
+    ''';
     return await db.rawQuery(sql, [vehicleId]);
   }
 
@@ -1462,12 +1896,51 @@ class DatabaseHelper {
 
   // Insert a new todo item
   Future<int> insertTodoItem(Map<String, dynamic> row) async {
+    try {
+      final res = await ApiService.createTodo(row);
+      if (res != null) return res['id'] ?? 1;
+    } catch (e) {
+      print('API Insert Todo Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.insert(tableTodoList, row);
   }
 
   // Get all pending todo items across all vehicles
   Future<List<Map<String, dynamic>>> queryAllPendingTodos() async {
+    try {
+      final List<dynamic> data = await ApiService.getPendingTodos();
+      if (data.isNotEmpty) {
+        return data
+            .map(
+              (t) => <String, dynamic>{
+                columnId: t['id'],
+                columnVehicleId: t['vehicle_id'],
+                columnPartName:
+                    t['part_name'], // Assuming 'part_name' maps to 'title' or similar
+                columnNotes:
+                    t['notes'], // Assuming 'notes' maps to 'description' or similar
+                columnStatus: t['status'],
+                columnCreatedAt: t['created_at'],
+                columnUpdatedAt: t['updated_at'],
+                columnMake: t['Vehicle'] != null ? t['Vehicle']['make'] : null,
+                columnModel: t['Vehicle'] != null
+                    ? t['Vehicle']['model']
+                    : null,
+                columnRegNo: t['Vehicle'] != null
+                    ? t['Vehicle']['reg_no']
+                    : null,
+              },
+            )
+            .toList();
+      }
+    } catch (e) {
+      print('API List Pending Todo Error: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     final String sql =
         '''
@@ -1497,6 +1970,30 @@ class DatabaseHelper {
 
   // Get all completed todo items across all vehicles
   Future<List<Map<String, dynamic>>> queryAllCompletedTodos() async {
+    try {
+      final List<dynamic> data = await ApiService.getCompletedTodos();
+      if (data.isNotEmpty) {
+        return data.map((t) {
+          final v = t['Vehicle'];
+          return <String, dynamic>{
+            columnId: t['id'],
+            columnVehicleId: t['vehicle_id'],
+            columnPartName: t['part_name'],
+            columnNotes: t['notes'],
+            columnStatus: t['status'],
+            columnCreatedAt: t['created_at'],
+            columnUpdatedAt: t['updated_at'],
+            columnMake: v != null ? v['make'] : null,
+            columnModel: v != null ? v['model'] : null,
+            columnRegNo: v != null ? v['reg_no'] : null,
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('API Todos completed: $e');
+    }
+    if (kIsWeb) return [];
+
     Database db = await instance.database;
     final String sql =
         '''
@@ -1515,6 +2012,14 @@ class DatabaseHelper {
 
   // Update todo status (pending/completed)
   Future<int> updateTodoStatus(int id, String status) async {
+    try {
+      await ApiService.updateTodoStatus(id, status);
+      return 1; // Assuming API call success implies 1 row affected
+    } catch (e) {
+      print('API update status Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
 
     // Prepare the update map
@@ -1535,6 +2040,14 @@ class DatabaseHelper {
 
   // Delete a todo item
   Future<int> deleteTodoItem(int id) async {
+    try {
+      await ApiService.deleteTodo(id);
+      return 1;
+    } catch (e) {
+      print('API Delete Todo Error: $e');
+    }
+    if (kIsWeb) return 1;
+
     Database db = await instance.database;
     return await db.delete(
       tableTodoList,

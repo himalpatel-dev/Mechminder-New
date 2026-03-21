@@ -4,6 +4,10 @@ import 'package:mechminder/widgets/splash_screen.dart'; // <-- NEW: Start on Spl
 import 'package:provider/provider.dart';
 import 'service/settings_provider.dart';
 import 'service/subscription_provider.dart';
+import 'service/vehicle_provider.dart';
+import 'service/todo_provider.dart';
+import 'service/template_provider.dart';
+import 'service/vendor_provider.dart';
 
 // --- REMOVED ALL OTHER IMPORTS (like workmanager, database, etc.) ---
 
@@ -32,6 +36,10 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider(create: (context) => SettingsProvider()),
         ChangeNotifierProvider(create: (context) => SubscriptionProvider()),
+        ChangeNotifierProvider(create: (context) => VehicleProvider()),
+        ChangeNotifierProvider(create: (context) => TodoProvider()),
+        ChangeNotifierProvider(create: (context) => TemplateProvider()),
+        ChangeNotifierProvider(create: (context) => VendorProvider()),
       ],
       child: const MyApp(),
     ),

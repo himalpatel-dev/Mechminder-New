@@ -1,12 +1,15 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart'; // <-- ADDED
-import '../service/database_helper.dart'; // Make sure this path is correct
 import 'package:provider/provider.dart';
-import '../service/settings_provider.dart'; // Make sure this path is correct
-import '../widgets/full_screen_photo_viewer.dart'; // <-- ADDED
-import '../service/notification_service.dart'; // Add this line
+import '../service/database_helper.dart';
+import '../service/api_service.dart';
+import '../service/vehicle_provider.dart';
+import '../service/settings_provider.dart';
+import '../service/notification_service.dart';
+import '../widgets/full_screen_photo_viewer.dart';
 
 class AddVehicleScreen extends StatefulWidget {
   final int? vehicleId;
@@ -138,38 +141,77 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
             int.tryParse(_odometerController.text) ?? 0,
       };
 
-      int vehicleId;
-      if (widget.vehicleId != null) {
-        vehicleId = widget.vehicleId!;
-        row[DatabaseHelper.columnId] = vehicleId;
-        await dbHelper.updateVehicle(row);
-      } else {
-        vehicleId = await dbHelper.insertVehicle(row);
-      }
+      try {
+        if (_isEditMode) {
+          int vehicleId = widget.vehicleId!;
+          await ApiService.updateVehicle(vehicleId, row);
 
-      // --- PHOTO SAVE LOGIC ---
-      for (var imageFile in _newImageFiles) {
-        await dbHelper.insertPhoto({
-          DatabaseHelper.columnParentId: vehicleId,
-          DatabaseHelper.columnParentType: 'vehicle',
-          DatabaseHelper.columnUri: imageFile.path,
-        });
-      }
-      // --- END PHOTO SAVE LOGIC ---
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Vehicle updated successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          List<int>? photoBytes;
+          String? photoName;
+          if (_newImageFiles.isNotEmpty) {
+            photoBytes = await _newImageFiles.first.readAsBytes();
+            photoName = _newImageFiles.first.name;
+          }
 
-      if (mounted) {
-        // --- TRIGGER REAL-TIME NOTIFICATIONS ---
-        // We only trigger if the odometer actually changed or is in edit mode
-        final int currentOdo = int.tryParse(_odometerController.text) ?? 0;
-        final settings = Provider.of<SettingsProvider>(context, listen: false);
+          // Use API to register vehicle
+          await ApiService.registerVehicle(
+            row.map((key, value) => MapEntry(key, value.toString())),
+            photoBytes: photoBytes,
+            photoName: photoName,
+          );
 
-        await NotificationService().checkAndShowOdometerReminders(
-          vehicleId: vehicleId,
-          currentOdometer: currentOdo,
-          unitType: settings.unitType,
-        );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Vehicle saved successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
 
-        Navigator.of(context).pop();
+        if (mounted) {
+          // Refresh the list in the provider
+          Provider.of<VehicleProvider>(
+            context,
+            listen: false,
+          ).refreshVehicles();
+
+          // --- TRIGGER REAL-TIME NOTIFICATIONS ---
+          final int currentOdo = int.tryParse(_odometerController.text) ?? 0;
+          final settings = Provider.of<SettingsProvider>(
+            context,
+            listen: false,
+          );
+
+          // Note: NotificationService still uses local DB for now, but that's okay for local alarms
+          await NotificationService().checkAndShowOdometerReminders(
+            vehicleId: widget.vehicleId ?? 0,
+            currentOdometer: currentOdo,
+            unitType: settings.unitType,
+          );
+
+          Navigator.of(context).pop(); // Single pop back to list
+        }
+      } catch (e) {
+        if (kDebugMode) print("AddVehicle Save Error: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error saving vehicle: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
@@ -540,7 +582,7 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
                   final index = entry.key;
                   final photo = entry.value;
                   return _buildPhotoItem(
-                    File(photo[DatabaseHelper.columnUri]),
+                    photo[DatabaseHelper.columnUri] as String,
                     () {
                       final paths = _existingPhotos
                           .map((p) => p[DatabaseHelper.columnUri] as String)
@@ -570,7 +612,7 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
                   final index = entry.key;
                   final file = entry.value;
                   return _buildPhotoItem(
-                    File(file.path),
+                    file.path,
                     null, // No full screen for unsaved yet, or could add
                     () {
                       setState(() {
@@ -587,10 +629,14 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
   }
 
   Widget _buildPhotoItem(
-    File file,
+    String filePath,
     VoidCallback? onTap,
     VoidCallback onDelete,
   ) {
+    final imageProvider = filePath.startsWith('http')
+        ? NetworkImage(filePath)
+        : FileImage(File(filePath)) as ImageProvider;
+
     return Stack(
       children: [
         GestureDetector(
@@ -600,13 +646,13 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
             margin: const EdgeInsets.only(right: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              image: DecorationImage(image: FileImage(file), fit: BoxFit.cover),
+              image: DecorationImage(image: imageProvider, fit: BoxFit.cover),
             ),
           ),
         ),
         Positioned(
           top: 4,
-          right: 16, // Adjust for margin
+          right: 16,
           child: GestureDetector(
             onTap: onDelete,
             child: Container(

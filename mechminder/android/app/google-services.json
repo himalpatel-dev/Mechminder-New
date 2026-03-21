@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "527562453905",
+    "project_id": "mechminder-hmlptl",
+    "storage_bucket": "mechminder-hmlptl.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:527562453905:android:ff63dfe4918b49830c6030",
+        "android_client_info": {
+          "package_name": "com.himal.mechminder"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMlMJPkOwbCPesvhOue-lYvlPXorq4eWY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
