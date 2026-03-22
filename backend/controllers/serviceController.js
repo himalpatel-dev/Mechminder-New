@@ -2,7 +2,7 @@ const db = require('../models');
 
 exports.createService = async (req, res) => {
   try {
-    const service = await db.Service.create(req.body);
+    const service = await db.Service.create(req.body, { include: [db.ServiceItem] });
     res.status(201).json(service);
   } catch (error) {
     res.status(400).json({ error: error.message });

@@ -9,9 +9,17 @@ const expenseController = require('../controllers/expenseController');
 const authController = require('../controllers/authController');
 
 const { identifyUser } = require('../middleware/authMiddleware');
+const userController = require('../controllers/userController');
 
 // Apply user identification middleware to all routes
 router.use(identifyUser);
+
+
+
+// User Profile & FCM Management
+
+router.post('/users/fcm-token', userController.updateFcmToken);
+router.post('/users/purchase-link', userController.linkPurchase);
 
 
 // Vehicles

@@ -44,11 +44,8 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
         pageController: _pageController,
         builder: (context, index) {
           final photoPath = widget.photoPaths[index];
-          final imageProvider = photoPath.startsWith('http')
-              ? NetworkImage(photoPath)
-              : FileImage(File(photoPath)) as ImageProvider;
           return PhotoViewGalleryPageOptions(
-            imageProvider: imageProvider,
+            imageProvider: FileImage(File(photoPath)),
             minScale: PhotoViewComputedScale.contained,
             maxScale: PhotoViewComputedScale.covered * 2.0,
           );

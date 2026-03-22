@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
+import '../service/database_helper.dart';
 import 'package:provider/provider.dart';
 import '../service/settings_provider.dart';
-import '../service/todo_provider.dart';
-import '../service/vehicle_provider.dart';
 
 class TodoListScreen extends StatefulWidget {
   const TodoListScreen({super.key});
@@ -12,30 +11,30 @@ class TodoListScreen extends StatefulWidget {
 }
 
 class TodoListScreenState extends State<TodoListScreen> {
+  final dbHelper = DatabaseHelper.instance;
+  List<Map<String, dynamic>> _todos = [];
+  bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      refreshTodoList();
+    refreshTodoList();
+  }
+
+  void refreshTodoList() async {
+    setState(() {
+      _isLoading = true;
+    });
+    final todos = await dbHelper.queryAllPendingTodos();
+    setState(() {
+      _todos = todos;
+      _isLoading = false;
     });
   }
 
-  void refreshTodoList() {
-    final todoProvider = Provider.of<TodoProvider>(context, listen: false);
-    final vehicleProvider = Provider.of<VehicleProvider>(
-      context,
-      listen: false,
-    );
-    todoProvider.refreshTodos();
-    vehicleProvider.refreshVehicles();
-  }
-
   void showAddTodoDialog() async {
-    final vehicleProvider = Provider.of<VehicleProvider>(
-      context,
-      listen: false,
-    );
-    final vehicles = vehicleProvider.vehicles;
+    // Get all vehicles for dropdown
+    final vehicles = await dbHelper.queryAllRows(DatabaseHelper.tableVehicles);
 
     if (!mounted) return;
 
@@ -49,7 +48,7 @@ class TodoListScreenState extends State<TodoListScreen> {
       return;
     }
 
-    int? selectedVehicleId = vehicles.first.id;
+    int? selectedVehicleId = vehicles.first[DatabaseHelper.columnId];
     final partNameController = TextEditingController();
     final notesController = TextEditingController();
 
@@ -127,9 +126,9 @@ class TodoListScreenState extends State<TodoListScreen> {
                                 ),
                                 items: vehicles.map((vehicle) {
                                   return DropdownMenuItem<int>(
-                                    value: vehicle.id,
+                                    value: vehicle[DatabaseHelper.columnId],
                                     child: Text(
-                                      '${vehicle.make} ${vehicle.model}',
+                                      '${vehicle[DatabaseHelper.columnMake]} ${vehicle[DatabaseHelper.columnModel]}',
                                     ),
                                   );
                                 }).toList(),
@@ -223,16 +222,14 @@ class TodoListScreenState extends State<TodoListScreen> {
                               return;
                             }
 
-                            final todoProvider = Provider.of<TodoProvider>(
-                              context,
-                              listen: false,
-                            );
-
-                            await todoProvider.createTodo({
-                              'vehicle_id': selectedVehicleId,
-                              'part_name': partNameController.text.trim(),
-                              'notes': notesController.text.trim(),
-                              'status': 'pending',
+                            await dbHelper.insertTodoItem({
+                              DatabaseHelper.columnVehicleId: selectedVehicleId,
+                              DatabaseHelper.columnPartName: partNameController
+                                  .text
+                                  .trim(),
+                              DatabaseHelper.columnNotes: notesController.text
+                                  .trim(),
+                              DatabaseHelper.columnStatus: 'pending',
                             });
 
                             if (!mounted) return;
@@ -270,10 +267,8 @@ class TodoListScreenState extends State<TodoListScreen> {
   }
 
   void _markAsCompleted(int id) async {
-    final todoProvider = Provider.of<TodoProvider>(context, listen: false);
-    await todoProvider.updateStatus(id, 'completed');
-    // Provider already calls refreshTodos, but we can call our refreshTodoList if needed
-    // refreshTodoList();
+    await dbHelper.updateTodoStatus(id, 'completed');
+    refreshTodoList();
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -285,9 +280,8 @@ class TodoListScreenState extends State<TodoListScreen> {
   }
 
   void _deleteTodo(int id) async {
-    final todoProvider = Provider.of<TodoProvider>(context, listen: false);
-    await todoProvider.deleteTodo(id);
-    // refreshTodoList();
+    await dbHelper.deleteTodoItem(id);
+    refreshTodoList();
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -299,8 +293,7 @@ class TodoListScreenState extends State<TodoListScreen> {
   }
 
   void showCompletedTodosDialog() async {
-    final todoProvider = Provider.of<TodoProvider>(context, listen: false);
-    final completedTodos = todoProvider.completedTodos;
+    final completedTodos = await dbHelper.queryAllCompletedTodos();
 
     if (!mounted) return;
 
@@ -398,11 +391,11 @@ class TodoListScreenState extends State<TodoListScreen> {
                     itemBuilder: (context, index) {
                       final todo = completedTodos[index];
                       final vehicleName =
-                          '${todo.vehicleMake ?? 'Unknown'} ${todo.vehicleModel ?? ''}';
-                      final regNo = todo.vehicleRegNo ?? '';
-                      final partName = todo.partName;
-                      final notes = todo.notes ?? '';
-                      final updatedAt = todo.updatedAt;
+                          '${todo[DatabaseHelper.columnMake] ?? 'Unknown'} ${todo[DatabaseHelper.columnModel] ?? ''}';
+                      final regNo = todo[DatabaseHelper.columnRegNo] ?? '';
+                      final partName = todo[DatabaseHelper.columnPartName];
+                      final notes = todo[DatabaseHelper.columnNotes] ?? '';
+                      final updatedAt = todo[DatabaseHelper.columnUpdatedAt];
 
                       // Format the completion date
                       String completionDate = 'Completed';
@@ -559,16 +552,10 @@ class TodoListScreenState extends State<TodoListScreen> {
     final settings = Provider.of<SettingsProvider>(context);
 
     return Scaffold(
-      body: Consumer<TodoProvider>(
-        builder: (context, todoProvider, child) {
-          if (todoProvider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final todos = todoProvider.pendingTodos;
-
-          if (todos.isEmpty) {
-            return Center(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _todos.isEmpty
+          ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -585,98 +572,93 @@ class TodoListScreenState extends State<TodoListScreen> {
                   ),
                 ],
               ),
-            );
-          }
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _todos.length,
+              itemBuilder: (context, index) {
+                final todo = _todos[index];
+                final vehicleName =
+                    '${todo[DatabaseHelper.columnMake]} ${todo[DatabaseHelper.columnModel]}';
+                final regNo = todo[DatabaseHelper.columnRegNo] ?? '';
+                final partName = todo[DatabaseHelper.columnPartName];
+                final notes = todo[DatabaseHelper.columnNotes] ?? '';
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: todos.length,
-            itemBuilder: (context, index) {
-              final todo = todos[index];
-              final vehicleName =
-                  '${todo.vehicleMake ?? 'Unknown'} ${todo.vehicleModel ?? ''}';
-              final regNo = todo.vehicleRegNo ?? '';
-              final partName = todo.partName;
-              final notes = todo.notes ?? '';
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(16),
-                  leading: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: settings.primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(Icons.build, color: settings.primaryColor),
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  title: Text(
-                    partName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text(
-                        '$vehicleName${regNo.isNotEmpty ? ' • $regNo' : ''}',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16),
+                    leading: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: settings.primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      if (notes.isNotEmpty) ...[
+                      child: Icon(Icons.build, color: settings.primaryColor),
+                    ),
+                    title: Text(
+                      partName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         const SizedBox(height: 4),
                         Text(
-                          notes,
+                          '$vehicleName${regNo.isNotEmpty ? ' • $regNo' : ''}',
                           style: TextStyle(
-                            color: Colors.grey[500],
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
+                            color: Colors.grey[600],
+                            fontSize: 13,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (notes.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            notes,
+                            style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.check_circle_outline),
+                          color: Colors.green,
+                          tooltip: 'Mark as completed',
+                          onPressed: () {
+                            _markAsCompleted(todo[DatabaseHelper.columnId]);
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          color: Colors.red,
+                          tooltip: 'Delete',
+                          onPressed: () {
+                            _deleteTodo(todo[DatabaseHelper.columnId]);
+                          },
                         ),
                       ],
-                    ],
+                    ),
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.check_circle_outline),
-                        color: Colors.green,
-                        tooltip: 'Mark as completed',
-                        onPressed: () {
-                          if (todo.id != null) {
-                            _markAsCompleted(todo.id!);
-                          }
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        color: Colors.red,
-                        tooltip: 'Delete',
-                        onPressed: () {
-                          if (todo.id != null) {
-                            _deleteTodo(todo.id!);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+                );
+              },
+            ),
     );
   }
 }

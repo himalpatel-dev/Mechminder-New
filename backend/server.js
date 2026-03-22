@@ -13,9 +13,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Swagger setup
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger');
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+
 // Request logger
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    if (req.headers['x-user-uid'] || req.headers['x-fcm-token']) {
+        console.log(`  > UID: ${req.headers['x-user-uid']}, FCM: ${req.headers['x-fcm-token'] ? 'YES' : 'NO'}`);
+    }
     next();
 });
 

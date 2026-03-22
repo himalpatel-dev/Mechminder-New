@@ -12,7 +12,6 @@ import 'package:provider/provider.dart';
 import '../service/database_helper.dart';
 import '../service/notification_service.dart';
 import 'package:workmanager/workmanager.dart';
-import '../service/auth_service.dart';
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
@@ -140,7 +139,6 @@ class _SplashScreenState extends State<SplashScreen> {
           callbackDispatcher,
           isInDebugMode: kDebugMode,
         );
-        await AuthService.initialize(); // Initialize Firebase and Anon Auth
 
         await Workmanager().registerPeriodicTask(
           "1",
