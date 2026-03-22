@@ -328,4 +328,35 @@ class ApiService {
       path: '${ApiConstants.templates}/$id',
     );
   }
+
+  // --- Users ---
+  static Future<dynamic> syncUserAndFCM(Map<String, dynamic> data) async {
+    final res = await ApiClient.request(
+      method: 'POST',
+      path: ApiConstants.userUpdateFCM,
+      body: data,
+    );
+    if (res.statusCode == 201 || res.statusCode == 200) return json.decode(res.body);
+    return null;
+  }
+
+  static Future<void> updateFCMToken(String uid, String token) async {
+    await ApiClient.request(
+      method: 'POST',
+      path: ApiConstants.userUpdateFCM,
+      body: {'firebase_uid': uid, 'fcm_token': token},
+    );
+  }
+
+  static Future<void> updatePurchaseId(String uid, String purchaseId, {String? fcmToken}) async {
+    await ApiClient.request(
+      method: 'POST',
+      path: ApiConstants.userUpdatePurchase,
+      body: {
+        'firebase_uid': uid,
+        'purchase_id': purchaseId,
+        if (fcmToken != null) 'fcm_token': fcmToken,
+      },
+    );
+  }
 }

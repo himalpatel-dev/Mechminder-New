@@ -20,25 +20,37 @@ class ApiClient {
       ...?headers,
     };
 
-    switch (method.toUpperCase()) {
-      case 'GET':
-        return await http.get(url, headers: finalHeaders);
-      case 'POST':
-        return await http.post(
-          url,
-          headers: finalHeaders,
-          body: body != null ? json.encode(body) : null,
-        );
-      case 'PUT':
-        return await http.put(
-          url,
-          headers: finalHeaders,
-          body: body != null ? json.encode(body) : null,
-        );
-      case 'DELETE':
-        return await http.delete(url, headers: finalHeaders);
-      default:
-        throw Exception('Unsupported HTTP method: $method');
+    try {
+      final Future<http.Response> requestFunc;
+      switch (method.toUpperCase()) {
+        case 'GET':
+          requestFunc = http.get(url, headers: finalHeaders);
+          break;
+        case 'POST':
+          requestFunc = http.post(
+            url,
+            headers: finalHeaders,
+            body: body != null ? json.encode(body) : null,
+          );
+          break;
+        case 'PUT':
+          requestFunc = http.put(
+            url,
+            headers: finalHeaders,
+            body: body != null ? json.encode(body) : null,
+          );
+          break;
+        case 'DELETE':
+          requestFunc = http.delete(url, headers: finalHeaders);
+          break;
+        default:
+          throw Exception('Unsupported HTTP method: $method');
+      }
+
+      return await requestFunc.timeout(const Duration(seconds: 10));
+    } catch (e) {
+      // Return a 503 response if timeout or error happens
+      return http.Response(json.encode({'error': e.toString()}), 503);
     }
   }
 

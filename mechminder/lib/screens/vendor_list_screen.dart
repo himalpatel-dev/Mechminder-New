@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../service/database_helper.dart';
 import 'package:provider/provider.dart';
 import '../service/settings_provider.dart';
+import '../service/vendor_provider.dart';
+import '../models/reminder_vendor.dart';
 import '../widgets/common_popup.dart';
 
 class VendorListScreen extends StatefulWidget {
@@ -13,10 +14,6 @@ class VendorListScreen extends StatefulWidget {
 }
 
 class _VendorListScreenState extends State<VendorListScreen> {
-  final dbHelper = DatabaseHelper.instance;
-  List<Map<String, dynamic>> _vendors = [];
-  bool _isLoading = true;
-
   // Controllers
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
@@ -25,26 +22,20 @@ class _VendorListScreenState extends State<VendorListScreen> {
   @override
   void initState() {
     super.initState();
-    _refreshVendorList();
-  }
-
-  Future<void> _refreshVendorList() async {
-    setState(() => _isLoading = true);
-    final allVendors = await dbHelper.queryAllVendors();
-    setState(() {
-      _vendors = allVendors;
-      _isLoading = false;
+    // Use addPostFrameCallback to refresh after build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<VendorProvider>(context, listen: false).refreshVendors();
     });
   }
 
   // --- DIALOG LOGIC ---
-  void _showAddEditVendorDialog({Map<String, dynamic>? vendor}) {
+  void _showAddEditVendorDialog({Vendor? vendor}) {
     bool isEditing = vendor != null;
 
     if (isEditing) {
-      _nameController.text = vendor[DatabaseHelper.columnName] ?? '';
-      _phoneController.text = vendor[DatabaseHelper.columnPhone] ?? '';
-      _addressController.text = vendor[DatabaseHelper.columnAddress] ?? '';
+      _nameController.text = vendor.name;
+      _phoneController.text = vendor.phone ?? '';
+      _addressController.text = vendor.address ?? '';
     } else {
       _nameController.clear();
       _phoneController.clear();
@@ -95,7 +86,7 @@ class _VendorListScreenState extends State<VendorListScreen> {
                 onPressed: () {
                   Navigator.of(context).pop();
                   _showDeleteConfirmation(
-                    vendor[DatabaseHelper.columnId],
+                    vendor.id!,
                     primaryColor,
                   );
                 },
@@ -153,27 +144,24 @@ class _VendorListScreenState extends State<VendorListScreen> {
     );
   }
 
-  void _saveVendor(Map<String, dynamic>? vendor) async {
-    bool isEditing = vendor != null;
-    Map<String, dynamic> row = {
-      DatabaseHelper.columnName: _nameController.text.trim(),
-      DatabaseHelper.columnPhone: _phoneController.text.trim(),
-      DatabaseHelper.columnAddress: _addressController.text.trim(),
+  void _saveVendor(Vendor? vendor) async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+
+    final Map<String, dynamic> row = {
+      'name': name,
+      'phone': _phoneController.text.trim(),
+      'address': _addressController.text.trim(),
     };
 
-    if (row[DatabaseHelper.columnName] == null ||
-        row[DatabaseHelper.columnName].isEmpty) {
-      return; // Basic validation
-    }
+    final vendorProvider = Provider.of<VendorProvider>(context, listen: false);
 
-    if (isEditing) {
-      row[DatabaseHelper.columnId] = vendor[DatabaseHelper.columnId];
-      await dbHelper.updateVendor(row);
+    if (vendor != null) {
+      row['id'] = vendor.id;
+      await vendorProvider.updateVendor(row);
     } else {
-      await dbHelper.insertVendor(row);
+      await vendorProvider.createVendor(row);
     }
-
-    _refreshVendorList();
   }
 
   void _showDeleteConfirmation(int id, Color primaryColor) {
@@ -199,9 +187,8 @@ class _VendorListScreenState extends State<VendorListScreen> {
               ),
             ),
             onPressed: () async {
-              await dbHelper.deleteVendor(id);
-              Navigator.of(ctx).pop();
-              _refreshVendorList();
+              await Provider.of<VendorProvider>(context, listen: false).deleteVendor(id);
+              if (mounted) Navigator.of(ctx).pop();
             },
             child: const Text('Delete'),
           ),
@@ -214,6 +201,7 @@ class _VendorListScreenState extends State<VendorListScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = Provider.of<SettingsProvider>(context);
+    final vendorProvider = Provider.of<VendorProvider>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = settings.primaryColor;
 
@@ -237,18 +225,22 @@ class _VendorListScreenState extends State<VendorListScreen> {
           color: isDark ? Colors.white : Colors.grey.shade900,
         ),
       ),
-      body: _isLoading
+      body: vendorProvider.isLoading
           ? Center(child: CircularProgressIndicator(color: primaryColor))
-          : _vendors.isEmpty
+          : vendorProvider.vendors.isEmpty
           ? _buildEmptyState(isDark)
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: _vendors.length,
-              separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final vendor = _vendors[index];
-                return _buildVendorCard(vendor, isDark, primaryColor);
-              },
+          : RefreshIndicator(
+              onRefresh: () => vendorProvider.refreshVendors(),
+              color: primaryColor,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: vendorProvider.vendors.length,
+                separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final vendor = vendorProvider.vendors[index];
+                  return _buildVendorCard(vendor, isDark, primaryColor);
+                },
+              ),
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddEditVendorDialog(vendor: null),
@@ -288,14 +280,10 @@ class _VendorListScreenState extends State<VendorListScreen> {
   }
 
   Widget _buildVendorCard(
-    Map<String, dynamic> vendor,
+    Vendor vendor,
     bool isDark,
     Color primaryColor,
   ) {
-    final name = vendor[DatabaseHelper.columnName] ?? 'Unknown';
-    final phone = vendor[DatabaseHelper.columnPhone] ?? '';
-    final address = vendor[DatabaseHelper.columnAddress] ?? '';
-
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -335,16 +323,16 @@ class _VendorListScreenState extends State<VendorListScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        name,
+                        vendor.name,
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: isDark ? Colors.white : Colors.grey.shade800,
                         ),
                       ),
-                      if (phone.isNotEmpty || address.isNotEmpty)
+                      if ((vendor.phone?.isNotEmpty ?? false) || (vendor.address?.isNotEmpty ?? false))
                         const SizedBox(height: 6),
-                      if (phone.isNotEmpty)
+                      if (vendor.phone?.isNotEmpty ?? false)
                         Row(
                           children: [
                             Icon(
@@ -354,7 +342,7 @@ class _VendorListScreenState extends State<VendorListScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              phone,
+                              vendor.phone!,
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.grey.shade600,
@@ -362,9 +350,9 @@ class _VendorListScreenState extends State<VendorListScreen> {
                             ),
                           ],
                         ),
-                      if (phone.isNotEmpty && address.isNotEmpty)
+                      if ((vendor.phone?.isNotEmpty ?? false) && (vendor.address?.isNotEmpty ?? false))
                         const SizedBox(height: 4),
-                      if (address.isNotEmpty)
+                      if (vendor.address?.isNotEmpty ?? false)
                         Row(
                           children: [
                             Icon(
@@ -375,7 +363,7 @@ class _VendorListScreenState extends State<VendorListScreen> {
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                address,
+                                vendor.address!,
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey.shade600,

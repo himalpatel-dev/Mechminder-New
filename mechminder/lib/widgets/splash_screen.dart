@@ -6,6 +6,7 @@ import '../screens/onboarding_screen.dart';
 import '../screens/home_screen.dart'; // Import your main home screen
 import '../screens/paywall_screen.dart';
 import '../service/subscription_provider.dart';
+import '../service/user_provider.dart';
 import 'package:provider/provider.dart';
 
 // --- ADD ALL THE IMPORTS FROM MAIN.DART ---
@@ -114,27 +115,36 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  static bool _setupTriggered = false;
+
   @override
   void initState() {
     super.initState();
-    // Start all the loading as soon as the splash screen appears
     _initializeAndNavigate();
   }
 
-  // --- THIS IS THE NEW LOADING FUNCTION ---
   void _initializeAndNavigate() async {
-    // 0. Give the UI a moment to paint the first frame.
-    await Future.delayed(const Duration(milliseconds: 200));
+    // 1. Only run setup once to prevent double-calls on theme rebuilds
+    if (_setupTriggered) return;
+    _setupTriggered = true;
 
-    // 1. Run your GIF timer (Reduced to 3s for better UX, user can adjust)
+    // 2. Setup Timer (minimum splash duration)
     Future<void> gifTimer = Future.delayed(const Duration(seconds: 4));
 
-    // 2. Run all your app setup
+    // 3. Setup Logic
     Future<void> appSetup = () async {
       try {
         await DatabaseHelper.instance.database;
         await NotificationService().initialize();
-        await NotificationService().requestPermissions();
+        // Permission request moved to a background-ish way to avoid blocking
+        NotificationService().requestPermissions();
+
+        // --- Sync User with Backend (Singleton guard already added) ---
+        if (mounted) {
+          final userProvider = Provider.of<UserProvider>(context, listen: false);
+          await userProvider.syncUser();
+        }
+
         await Workmanager().initialize(
           callbackDispatcher,
           isInDebugMode: kDebugMode,
@@ -146,13 +156,8 @@ class _SplashScreenState extends State<SplashScreen> {
           frequency: const Duration(days: 1),
           initialDelay: const Duration(minutes: 15),
         );
-        if (kDebugMode) {
-          print("[Splash] Workmanager task registered.");
-        }
       } catch (e) {
-        if (kDebugMode) {
-          print("!!! ERROR DURING APP INIT: $e");
-        }
+        if (kDebugMode) print("!!! ERROR DURING APP INIT: $e");
       }
     }();
 

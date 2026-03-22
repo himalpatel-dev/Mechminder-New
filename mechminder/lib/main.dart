@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 // <-- NEW: For SystemChrome
 import 'package:mechminder/widgets/splash_screen.dart'; // <-- NEW: Start on Splash Screen
 import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'service/settings_provider.dart';
 import 'service/subscription_provider.dart';
+import 'service/user_provider.dart';
+import 'service/vendor_provider.dart';
 
 // --- REMOVED ALL OTHER IMPORTS (like workmanager, database, etc.) ---
 
@@ -13,6 +16,9 @@ import 'service/subscription_provider.dart';
 Future<void> main() async {
   // 1. Ensure all Flutter bindings are ready
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 1.5 Initialize Firebase (Critical for UserProvider created in MultiProvider)
+  await Firebase.initializeApp();
 
   // --- NEW: Make System Bars Transparent (Edge-to-Edge) ---
   // SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -31,7 +37,15 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (context) => SettingsProvider()),
-        ChangeNotifierProvider(create: (context) => SubscriptionProvider()),
+        ChangeNotifierProvider(create: (context) => UserProvider()),
+        ChangeNotifierProvider(create: (context) => VendorProvider()),
+        ChangeNotifierProxyProvider<UserProvider, SubscriptionProvider>(
+          create: (context) => SubscriptionProvider(),
+          update: (context, userProvider, subscriptionProvider) {
+            subscriptionProvider!.updateUserProvider(userProvider);
+            return subscriptionProvider;
+          },
+        ),
       ],
       child: const MyApp(),
     ),

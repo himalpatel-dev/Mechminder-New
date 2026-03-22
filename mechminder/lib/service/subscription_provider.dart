@@ -2,8 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import 'user_provider.dart';
 
 class SubscriptionProvider with ChangeNotifier {
+  UserProvider? _userProvider;
+
+  void updateUserProvider(UserProvider? provider) {
+    _userProvider = provider;
+  }
   static const String _trialStartDateKey = 'trial_start_date_v1';
   static const String _premiumOverrideKey = 'premium_override_enabled';
   static const int _trialDurationDays = 15;
@@ -116,6 +122,8 @@ class SubscriptionProvider with ChangeNotifier {
         } else if (purchaseDetails.status == PurchaseStatus.purchased ||
             purchaseDetails.status == PurchaseStatus.restored) {
           _grantPremium();
+          // --- NEW: Update Backend with Purchase ID ---
+          _userProvider?.updatePurchase(purchaseDetails.purchaseID ?? "purchased_item");
         }
 
         if (purchaseDetails.pendingCompletePurchase) {
