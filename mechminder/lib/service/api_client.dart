@@ -56,17 +56,18 @@ class ApiClient {
 
   // Specialized Request for Multipart/Form-Data (Vehicle adding)
   static Future<http.StreamedResponse> multipartRequest({
-    required String
-    method, // Added to support PUT if needed, though mostly POST
+    required String method,
     required String path,
     required Map<String, String> fields,
     http.MultipartFile? file,
+    Map<String, String>? headers,
   }) async {
     final uid = await AuthService.getUid();
     final url = Uri.parse('${ApiConstants.baseUrl}$path');
 
     final req = http.MultipartRequest(method, url);
     req.headers['X-User-Uid'] = uid ?? '';
+    if (headers != null) req.headers.addAll(headers);
     req.fields.addAll(fields);
     if (file != null) req.files.add(file);
 

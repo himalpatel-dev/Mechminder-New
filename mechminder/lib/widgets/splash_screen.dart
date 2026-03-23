@@ -141,7 +141,10 @@ class _SplashScreenState extends State<SplashScreen> {
 
         // --- Sync User with Backend (Singleton guard already added) ---
         if (mounted) {
-          final userProvider = Provider.of<UserProvider>(context, listen: false);
+          final userProvider = Provider.of<UserProvider>(
+            context,
+            listen: false,
+          );
           await userProvider.syncUser();
         }
 

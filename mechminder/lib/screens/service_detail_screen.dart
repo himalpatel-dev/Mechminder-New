@@ -1,10 +1,10 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../service/database_helper.dart';
+import '../service/api_service.dart';
 import '../service/settings_provider.dart';
 import 'add_service_screen.dart';
 import '../widgets/full_screen_photo_viewer.dart';
+import '../core/api_constants.dart';
 
 class ServiceDetailScreen extends StatefulWidget {
   final int serviceId;
@@ -23,11 +23,9 @@ class ServiceDetailScreen extends StatefulWidget {
 }
 
 class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
-  final dbHelper = DatabaseHelper.instance;
-
   Map<String, dynamic>? _service;
-  List<Map<String, dynamic>> _serviceItems = [];
-  List<Map<String, dynamic>> _servicePhotos = [];
+  List<dynamic> _serviceItems = [];
+  List<dynamic> _servicePhotos = [];
   bool _isLoading = true;
 
   @override
@@ -38,32 +36,36 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
   Future<void> _loadServiceDetails() async {
     if (!mounted) return;
-
+    setState(() => _isLoading = true);
     try {
-      final serviceData = await dbHelper.queryServiceById(widget.serviceId);
+      final serviceData = await ApiService.getServiceById(widget.serviceId);
       if (serviceData == null) {
-        if (mounted) Navigator.of(context).pop();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Failed to load service details. Check your connection or server.',
+              ),
+            ),
+          );
+          Navigator.of(context).pop();
+        }
         return;
       }
 
-      final itemsData = await dbHelper.queryServiceItems(widget.serviceId);
-      final photosData = await dbHelper.queryPhotosForParent(
-        widget.serviceId,
-        'service',
-      );
-
       setState(() {
         _service = serviceData;
-        _serviceItems = itemsData;
-        _servicePhotos = photosData;
+        _serviceItems = serviceData['ServiceItems'] ?? [];
+        _servicePhotos = serviceData['Photos'] ?? [];
         _isLoading = false;
       });
     } catch (e) {
-      print("Error loading service details: $e");
+      debugPrint("Error loading service details: $e");
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -88,16 +90,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                 foregroundColor: Colors.white,
               ),
               onPressed: () async {
-                await dbHelper.deleteService(widget.serviceId);
-                await dbHelper.deleteAllServiceItemsForService(
-                  widget.serviceId,
-                );
-                await dbHelper.deletePhotosForParent(
-                  widget.serviceId,
-                  'service',
-                );
-                await dbHelper.deleteRemindersByService(widget.serviceId);
-
+                await ApiService.deleteService(widget.serviceId);
+                // Also need to handle photos/reminders cleanup on backend (ideally).
+                // Or manual calls if not.
                 if (mounted) {
                   Navigator.of(ctx).pop();
                   Navigator.of(context).pop();
@@ -135,7 +130,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       backgroundColor: isDark ? const Color(0xFF121212) : Colors.grey.shade50,
       appBar: AppBar(
         title: Text(
-          _service![DatabaseHelper.columnServiceName] ?? 'Service Detail',
+          _service!['service_name'] ?? 'Service Detail',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -172,11 +167,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- Summary Card ---
             _buildSummaryCard(settings, isDark, primaryColor),
             const SizedBox(height: 20),
-
-            // --- Parts List ---
             if (_serviceItems.isNotEmpty) ...[
               Text(
                 "PARTS & ITEMS",
@@ -191,8 +183,6 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               _buildPartsList(settings, isDark),
               const SizedBox(height: 24),
             ],
-
-            // --- Photos Section ---
             if (_servicePhotos.isNotEmpty) ...[
               Text(
                 "PHOTOS",
@@ -237,14 +227,14 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             children: [
               _buildInfoColumn(
                 "Date",
-                _service![DatabaseHelper.columnServiceDate],
+                _service!['service_date'] ?? 'N/A',
                 Icons.calendar_today,
                 isDark,
                 primaryColor,
               ),
               _buildInfoColumn(
                 "Odometer",
-                '${_service![DatabaseHelper.columnOdometer]} ${settings.unitType}',
+                '${_service!['odometer'] ?? 'N/A'} ${settings.unitType}',
                 Icons.speed,
                 isDark,
                 primaryColor,
@@ -278,7 +268,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                       ),
                     ),
                     Text(
-                      _service!['vendor_name'] ?? 'N/A',
+                      _service!['Vendor']?['name'] ?? 'N/A',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -290,8 +280,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               ),
             ],
           ),
-          if (_service![DatabaseHelper.columnNotes] != null &&
-              _service![DatabaseHelper.columnNotes].toString().isNotEmpty) ...[
+          if (_service!['notes'] != null &&
+              _service!['notes'].toString().isNotEmpty) ...[
             const SizedBox(height: 16),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -321,7 +311,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                         ),
                       ),
                       Text(
-                        _service![DatabaseHelper.columnNotes],
+                        _service!['notes'],
                         style: TextStyle(
                           fontSize: 14,
                           color: isDark ? Colors.white70 : Colors.grey.shade700,
@@ -356,7 +346,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   ),
                 ),
                 Text(
-                  '${settings.currencySymbol}${_service![DatabaseHelper.columnTotalCost] ?? '0.00'}',
+                  '${settings.currencySymbol}${_service!['total_cost'] ?? '0.00'}',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -443,11 +433,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           final index = entry.key;
           final item = entry.value;
           final isLast = index == _serviceItems.length - 1;
-          final name = item[DatabaseHelper.columnName];
-          final qty = (item[DatabaseHelper.columnQty] as num).toDouble();
-          final cost = (item[DatabaseHelper.columnUnitCost] as num).toDouble();
-          final total = (item[DatabaseHelper.columnTotalCost] as num)
-              .toDouble();
+          final name = item['name'] ?? 'Part';
+          final qty = (item['qty'] ?? 1).toDouble();
+          final cost = (item['unit_cost'] ?? 0).toDouble();
+          final total = qty * cost;
 
           return Column(
             children: [
@@ -526,12 +515,19 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         itemCount: _servicePhotos.length,
         itemBuilder: (context, index) {
           final photo = _servicePhotos[index];
-          final photoPath = photo[DatabaseHelper.columnUri];
+          final photoUri = photo['uri'] ?? '';
+          final String fullUrl = photoUri.startsWith('http')
+              ? photoUri
+              : '${ApiConstants.serverUrl}$photoUri';
+
           return GestureDetector(
             onTap: () {
-              final paths = _servicePhotos
-                  .map((photo) => photo[DatabaseHelper.columnUri] as String)
-                  .toList();
+              final paths = _servicePhotos.map((p) {
+                final uri = p['uri'] as String;
+                return uri.startsWith('http')
+                    ? uri
+                    : '${ApiConstants.serverUrl}$uri';
+              }).toList();
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -555,7 +551,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   ),
                 ],
                 image: DecorationImage(
-                  image: FileImage(File(photoPath)),
+                  image: NetworkImage(fullUrl),
                   fit: BoxFit.cover,
                 ),
               ),

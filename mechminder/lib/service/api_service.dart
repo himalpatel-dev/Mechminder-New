@@ -23,12 +23,29 @@ class ApiService {
     return null;
   }
 
-  static Future<void> updateVehicle(int id, Map<String, dynamic> data) async {
-    await ApiClient.request(
-      method: 'PUT',
-      path: ApiConstants.vehicleDetails.replaceAll('{id}', id.toString()),
-      body: data,
-    );
+  static Future<void> updateVehicle(
+    int id,
+    Map<String, String> fields, {
+    String? photoName,
+    List<int>? photoBytes,
+  }) async {
+    final path = ApiConstants.vehicleDetails.replaceAll('{id}', id.toString());
+
+    if (photoBytes != null && photoName != null) {
+      final file = http.MultipartFile.fromBytes(
+        'photo',
+        photoBytes,
+        filename: photoName,
+      );
+      await ApiClient.multipartRequest(
+        method: 'PUT',
+        path: path,
+        fields: fields,
+        file: file,
+      );
+    } else {
+      await ApiClient.request(method: 'PUT', path: path, body: fields);
+    }
   }
 
   static Future<void> deleteVehicle(int id) async {
@@ -62,6 +79,32 @@ class ApiService {
     final res = await http.Response.fromStream(streamedRes);
     if (res.statusCode == 201) return json.decode(res.body);
     return null;
+  }
+
+  static Future<dynamic> uploadPhoto({
+    required int parentId,
+    required String parentType,
+    required dynamic imageFile, // Can be XFile
+  }) async {
+    final bytes = await imageFile.readAsBytes();
+    final name = imageFile.name;
+
+    final file = http.MultipartFile.fromBytes('photo', bytes, filename: name);
+
+    final streamedRes = await ApiClient.multipartRequest(
+      method: 'POST',
+      path: '/photos',
+      fields: {'parent_id': parentId.toString(), 'parent_type': parentType},
+      file: file,
+      headers: {'X-Parent-Type': parentType},
+    );
+    final res = await http.Response.fromStream(streamedRes);
+    if (res.statusCode == 201) return json.decode(res.body);
+    return null;
+  }
+
+  static Future<void> deletePhoto(int id) async {
+    await ApiClient.request(method: 'DELETE', path: '/photos/$id');
   }
 
   static Future<void> updateOdometer(int id, int odometer) async {
@@ -176,6 +219,31 @@ class ApiService {
     return null;
   }
 
+  static Future<dynamic> createService(Map<String, dynamic> data) async {
+    final res = await ApiClient.request(
+      method: 'POST',
+      path: ApiConstants.services,
+      body: data,
+    );
+    if (res.statusCode == 201) return json.decode(res.body);
+    return null;
+  }
+
+  static Future<void> updateService(int id, Map<String, dynamic> data) async {
+    await ApiClient.request(
+      method: 'PUT',
+      path: '${ApiConstants.services}/$id',
+      body: data,
+    );
+  }
+
+  static Future<void> deleteService(int id) async {
+    await ApiClient.request(
+      method: 'DELETE',
+      path: '${ApiConstants.services}/$id',
+    );
+  }
+
   // --- Reminders ---
   static Future<List<dynamic>> getRemindersForVehicle(int vehicleId) async {
     final res = await ApiClient.request(
@@ -200,14 +268,35 @@ class ApiService {
   }
 
   static Future<void> updateReminder(
-    int id,
+    int id, {
     String? dueDate,
     int? dueOdometer,
-  ) async {
+    String? status,
+  }) async {
     await ApiClient.request(
       method: 'PUT',
       path: '${ApiConstants.reminders}/$id',
-      body: {'due_date': dueDate, 'due_odometer': dueOdometer},
+      body: {
+        if (dueDate != null) 'due_date': dueDate,
+        if (dueOdometer != null) 'due_odometer': dueOdometer,
+        if (status != null) 'status': status,
+      },
+    );
+  }
+
+  static Future<void> completeRemindersByTemplate({
+    required int vehicleId,
+    required int templateId,
+    required int serviceId,
+  }) async {
+    await ApiClient.request(
+      method: 'PUT',
+      path: '/reminders/complete-by-template',
+      body: {
+        'vehicle_id': vehicleId,
+        'template_id': templateId,
+        'service_id': serviceId,
+      },
     );
   }
 
@@ -329,6 +418,60 @@ class ApiService {
     );
   }
 
+  // --- Documents ---
+  static Future<List<dynamic>> getDocuments() async {
+    final res = await ApiClient.request(
+      method: 'GET',
+      path: ApiConstants.documents,
+    );
+    if (res.statusCode == 200) return json.decode(res.body);
+    return [];
+  }
+
+  static Future<List<dynamic>> getDocumentsForVehicle(int vehicleId) async {
+    final res = await ApiClient.request(
+      method: 'GET',
+      path: ApiConstants.vehicleDocuments.replaceAll(
+        '{vehicleId}',
+        vehicleId.toString(),
+      ),
+    );
+    if (res.statusCode == 200) return json.decode(res.body);
+    return [];
+  }
+
+  static Future<dynamic> createDocument(
+    Map<String, String> fields, {
+    String? fileName,
+    List<int>? fileBytes,
+  }) async {
+    http.MultipartFile? file;
+    if (fileBytes != null && fileName != null) {
+      file = http.MultipartFile.fromBytes(
+        'document',
+        fileBytes,
+        filename: fileName,
+      );
+    }
+
+    final streamedRes = await ApiClient.multipartRequest(
+      method: 'POST',
+      path: ApiConstants.documents,
+      fields: fields,
+      file: file,
+    );
+    final res = await http.Response.fromStream(streamedRes);
+    if (res.statusCode == 201) return json.decode(res.body);
+    return null;
+  }
+
+  static Future<void> deleteDocument(int id) async {
+    await ApiClient.request(
+      method: 'DELETE',
+      path: ApiConstants.documentDetails.replaceAll('{id}', id.toString()),
+    );
+  }
+
   // --- Users ---
   static Future<dynamic> syncUserAndFCM(Map<String, dynamic> data) async {
     final res = await ApiClient.request(
@@ -336,7 +479,8 @@ class ApiService {
       path: ApiConstants.userUpdateFCM,
       body: data,
     );
-    if (res.statusCode == 201 || res.statusCode == 200) return json.decode(res.body);
+    if (res.statusCode == 201 || res.statusCode == 200)
+      return json.decode(res.body);
     return null;
   }
 
@@ -348,7 +492,11 @@ class ApiService {
     );
   }
 
-  static Future<void> updatePurchaseId(String uid, String purchaseId, {String? fcmToken}) async {
+  static Future<void> updatePurchaseId(
+    String uid,
+    String purchaseId, {
+    String? fcmToken,
+  }) async {
     await ApiClient.request(
       method: 'POST',
       path: ApiConstants.userUpdatePurchase,

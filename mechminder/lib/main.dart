@@ -7,6 +7,7 @@ import 'service/settings_provider.dart';
 import 'service/subscription_provider.dart';
 import 'service/user_provider.dart';
 import 'service/vendor_provider.dart';
+import 'service/template_provider.dart';
 
 // --- REMOVED ALL OTHER IMPORTS (like workmanager, database, etc.) ---
 
@@ -39,6 +40,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (context) => SettingsProvider()),
         ChangeNotifierProvider(create: (context) => UserProvider()),
         ChangeNotifierProvider(create: (context) => VendorProvider()),
+        ChangeNotifierProvider(create: (context) => TemplateProvider()),
         ChangeNotifierProxyProvider<UserProvider, SubscriptionProvider>(
           create: (context) => SubscriptionProvider(),
           update: (context, userProvider, subscriptionProvider) {

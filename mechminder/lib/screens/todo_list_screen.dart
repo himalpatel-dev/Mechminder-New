@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../service/database_helper.dart';
+import '../service/api_service.dart';
 import 'package:provider/provider.dart';
 import '../service/settings_provider.dart';
 
@@ -11,8 +11,7 @@ class TodoListScreen extends StatefulWidget {
 }
 
 class TodoListScreenState extends State<TodoListScreen> {
-  final dbHelper = DatabaseHelper.instance;
-  List<Map<String, dynamic>> _todos = [];
+  List<dynamic> _todos = [];
   bool _isLoading = true;
 
   @override
@@ -25,16 +24,27 @@ class TodoListScreenState extends State<TodoListScreen> {
     setState(() {
       _isLoading = true;
     });
-    final todos = await dbHelper.queryAllPendingTodos();
-    setState(() {
-      _todos = todos;
-      _isLoading = false;
-    });
+    try {
+      final todos = await ApiService.getPendingTodos();
+      if (mounted) {
+        setState(() {
+          _todos = todos;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading todos: $e')));
+      }
+    }
   }
 
   void showAddTodoDialog() async {
-    // Get all vehicles for dropdown
-    final vehicles = await dbHelper.queryAllRows(DatabaseHelper.tableVehicles);
+    // Get all vehicles for dropdown from API
+    final List<dynamic> vehicles = await ApiService.getVehicles();
 
     if (!mounted) return;
 
@@ -48,7 +58,7 @@ class TodoListScreenState extends State<TodoListScreen> {
       return;
     }
 
-    int? selectedVehicleId = vehicles.first[DatabaseHelper.columnId];
+    int? selectedVehicleId = vehicles.first['id'];
     final partNameController = TextEditingController();
     final notesController = TextEditingController();
 
@@ -126,9 +136,9 @@ class TodoListScreenState extends State<TodoListScreen> {
                                 ),
                                 items: vehicles.map((vehicle) {
                                   return DropdownMenuItem<int>(
-                                    value: vehicle[DatabaseHelper.columnId],
+                                    value: vehicle['id'],
                                     child: Text(
-                                      '${vehicle[DatabaseHelper.columnMake]} ${vehicle[DatabaseHelper.columnModel]}',
+                                      '${vehicle['make']} ${vehicle['model']}',
                                     ),
                                   );
                                 }).toList(),
@@ -222,14 +232,11 @@ class TodoListScreenState extends State<TodoListScreen> {
                               return;
                             }
 
-                            await dbHelper.insertTodoItem({
-                              DatabaseHelper.columnVehicleId: selectedVehicleId,
-                              DatabaseHelper.columnPartName: partNameController
-                                  .text
-                                  .trim(),
-                              DatabaseHelper.columnNotes: notesController.text
-                                  .trim(),
-                              DatabaseHelper.columnStatus: 'pending',
+                            await ApiService.createTodo({
+                              'vehicle_id': selectedVehicleId,
+                              'part_name': partNameController.text.trim(),
+                              'notes': notesController.text.trim(),
+                              'status': 'pending',
                             });
 
                             if (!mounted) return;
@@ -267,7 +274,7 @@ class TodoListScreenState extends State<TodoListScreen> {
   }
 
   void _markAsCompleted(int id) async {
-    await dbHelper.updateTodoStatus(id, 'completed');
+    await ApiService.updateTodoStatus(id, 'completed');
     refreshTodoList();
 
     if (!mounted) return;
@@ -280,7 +287,7 @@ class TodoListScreenState extends State<TodoListScreen> {
   }
 
   void _deleteTodo(int id) async {
-    await dbHelper.deleteTodoItem(id);
+    await ApiService.deleteTodo(id);
     refreshTodoList();
 
     if (!mounted) return;
@@ -293,7 +300,7 @@ class TodoListScreenState extends State<TodoListScreen> {
   }
 
   void showCompletedTodosDialog() async {
-    final completedTodos = await dbHelper.queryAllCompletedTodos();
+    final completedTodos = await ApiService.getCompletedTodos();
 
     if (!mounted) return;
 
@@ -390,12 +397,13 @@ class TodoListScreenState extends State<TodoListScreen> {
                         const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final todo = completedTodos[index];
+                      final vehicle = todo['Vehicle'];
                       final vehicleName =
-                          '${todo[DatabaseHelper.columnMake] ?? 'Unknown'} ${todo[DatabaseHelper.columnModel] ?? ''}';
-                      final regNo = todo[DatabaseHelper.columnRegNo] ?? '';
-                      final partName = todo[DatabaseHelper.columnPartName];
-                      final notes = todo[DatabaseHelper.columnNotes] ?? '';
-                      final updatedAt = todo[DatabaseHelper.columnUpdatedAt];
+                          '${vehicle?['make'] ?? 'Unknown'} ${vehicle?['model'] ?? ''}';
+                      final regNo = vehicle?['reg_no'] ?? '';
+                      final partName = todo['part_name'];
+                      final notes = todo['notes'] ?? '';
+                      final updatedAt = todo['updated_at'];
 
                       // Format the completion date
                       String completionDate = 'Completed';
@@ -578,11 +586,12 @@ class TodoListScreenState extends State<TodoListScreen> {
               itemCount: _todos.length,
               itemBuilder: (context, index) {
                 final todo = _todos[index];
+                final vehicle = todo['Vehicle'];
                 final vehicleName =
-                    '${todo[DatabaseHelper.columnMake]} ${todo[DatabaseHelper.columnModel]}';
-                final regNo = todo[DatabaseHelper.columnRegNo] ?? '';
-                final partName = todo[DatabaseHelper.columnPartName];
-                final notes = todo[DatabaseHelper.columnNotes] ?? '';
+                    '${vehicle?['make'] ?? 'Unknown'} ${vehicle?['model'] ?? ''}';
+                final regNo = vehicle?['reg_no'] ?? '';
+                final partName = todo['part_name'];
+                final notes = todo['notes'] ?? '';
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -642,7 +651,7 @@ class TodoListScreenState extends State<TodoListScreen> {
                           color: Colors.green,
                           tooltip: 'Mark as completed',
                           onPressed: () {
-                            _markAsCompleted(todo[DatabaseHelper.columnId]);
+                            _markAsCompleted(todo['id']);
                           },
                         ),
                         IconButton(
@@ -650,7 +659,7 @@ class TodoListScreenState extends State<TodoListScreen> {
                           color: Colors.red,
                           tooltip: 'Delete',
                           onPressed: () {
-                            _deleteTodo(todo[DatabaseHelper.columnId]);
+                            _deleteTodo(todo['id']);
                           },
                         ),
                       ],

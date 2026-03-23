@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../service/database_helper.dart';
+import '../service/api_service.dart';
 import '../service/settings_provider.dart';
 import 'add_service_screen.dart';
 import 'service_detail_screen.dart';
@@ -15,7 +15,6 @@ class ServiceHistoryTab extends StatefulWidget {
 }
 
 class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
-  final dbHelper = DatabaseHelper.instance;
   List<Map<String, dynamic>> _serviceRecords = [];
   bool _isLoading = true;
   int _currentOdometer = 0;
@@ -52,16 +51,18 @@ class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
 
   Future<void> _refreshServiceList() async {
     final data = await Future.wait([
-      dbHelper.queryServicesForVehicle(widget.vehicleId),
-      dbHelper.queryVehicleById(widget.vehicleId),
+      ApiService.getServicesForVehicle(widget.vehicleId),
+      ApiService.getVehicleById(widget.vehicleId),
     ]);
 
-    final services = data[0] as List<Map<String, dynamic>>;
+    final services = data[0] as List<dynamic>;
     final vehicle = data[1] as Map<String, dynamic>?;
 
     setState(() {
-      _serviceRecords = services;
-      _currentOdometer = vehicle?[DatabaseHelper.columnCurrentOdometer] ?? 0;
+      _serviceRecords = services
+          .map((s) => Map<String, dynamic>.from(s))
+          .toList();
+      _currentOdometer = vehicle?['current_odometer'] ?? 0;
       _isLoading = false;
     });
   }
@@ -89,8 +90,10 @@ class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
     // --- Grouping Logic ---
     final Map<String, List<Map<String, dynamic>>> groupedServices = {};
     for (var service in _serviceRecords) {
-      final String monthYear = service[DatabaseHelper.columnServiceDate]
-          .substring(0, 7);
+      final String monthYear = (service['service_date'] as String).substring(
+        0,
+        7,
+      );
       if (groupedServices[monthYear] == null) {
         groupedServices[monthYear] = [];
       }
@@ -223,7 +226,7 @@ class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
               context,
               MaterialPageRoute(
                 builder: (context) => ServiceDetailScreen(
-                  serviceId: record[DatabaseHelper.columnId],
+                  serviceId: record['id'],
                   vehicleId: widget.vehicleId,
                   currentOdometer: _currentOdometer,
                 ),
@@ -257,8 +260,7 @@ class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            record[DatabaseHelper.columnServiceName] ??
-                                'Service',
+                            record['service_name'] ?? 'Service',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
@@ -269,7 +271,7 @@ class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            record['vendor_name'] ?? 'Unknown Workshop',
+                            record['Vendor']?['name'] ?? 'Unknown Workshop',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.grey.shade500,
@@ -284,7 +286,7 @@ class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          '${settings.currencySymbol}${record[DatabaseHelper.columnTotalCost] ?? '0.00'}',
+                          '${settings.currencySymbol}${record['total_cost'] ?? '0.00'}',
                           style: TextStyle(
                             color: Colors.green.shade600,
                             fontWeight: FontWeight.bold,
@@ -306,17 +308,17 @@ class _ServiceHistoryTabState extends State<ServiceHistoryTab> {
                   children: [
                     _buildInfoChip(
                       Icons.calendar_today,
-                      record[DatabaseHelper.columnServiceDate],
+                      record['service_date'],
                       isDark,
                     ),
                     _buildInfoChip(
                       Icons.speed,
-                      '${record[DatabaseHelper.columnOdometer] ?? 'N/A'} ${settings.unitType}',
+                      '${record['odometer'] ?? 'N/A'} ${settings.unitType}',
                       isDark,
                     ),
                     _buildInfoChip(
                       Icons.receipt_long,
-                      '${record['item_count']} Items',
+                      '${(record['ServiceItems'] as List).length} Items',
                       isDark,
                     ),
                   ],

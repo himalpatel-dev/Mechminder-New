@@ -1,12 +1,15 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart'; // <-- ADDED
-import '../service/database_helper.dart'; // Make sure this path is correct
+import 'package:image_picker/image_picker.dart';
+import '../service/api_service.dart';
+import '../service/database_helper.dart'; // Keeping for potential local fallbacks if needed, but primarily api
 import 'package:provider/provider.dart';
-import '../service/settings_provider.dart'; // Make sure this path is correct
-import '../widgets/full_screen_photo_viewer.dart'; // <-- ADDED
-import '../service/notification_service.dart'; // Add this line
+import '../service/settings_provider.dart';
+import '../widgets/full_screen_photo_viewer.dart';
+import '../service/notification_service.dart';
+import '../core/api_constants.dart'; // Added for serverUrl
 
 class AddVehicleScreen extends StatefulWidget {
   final int? vehicleId;
@@ -69,31 +72,32 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
   }
 
   Future<void> _loadVehicleData() async {
-    final data = await Future.wait([
-      dbHelper.queryVehicleById(widget.vehicleId!),
-      dbHelper.queryPhotosForParent(
-        widget.vehicleId!,
-        'vehicle',
-      ), // <-- FETCH PHOTOS
-    ]);
+    try {
+      final vehicle = await ApiService.getVehicleById(widget.vehicleId!);
 
-    final vehicle = data[0] as Map<String, dynamic>?;
-    _existingPhotos = List<Map<String, dynamic>>.from(
-      data[1] as List,
-    ); // <-- SET EXISTING PHOTOS
+      if (vehicle != null) {
+        _makeController.text = vehicle['make'] ?? '';
+        _modelController.text = vehicle['model'] ?? '';
+        _variantController.text = vehicle['variant'] ?? '';
+        _purchaseDateController.text = vehicle['purchase_date'] ?? '';
+        _selectedFuelType = vehicle['fuel_type'];
+        _colorController.text = vehicle['vehicle_color'] ?? '';
+        _regNoController.text = vehicle['reg_no'] ?? '';
+        _ownerNameController.text = vehicle['owner_name'] ?? '';
+        _odometerController.text = (vehicle['current_odometer'] ?? '')
+            .toString();
 
-    if (vehicle != null) {
-      _makeController.text = vehicle[DatabaseHelper.columnMake] ?? '';
-      _modelController.text = vehicle[DatabaseHelper.columnModel] ?? '';
-      _variantController.text = vehicle[DatabaseHelper.columnVariant] ?? '';
-      _purchaseDateController.text =
-          vehicle[DatabaseHelper.columnPurchaseDate] ?? '';
-      _selectedFuelType = vehicle[DatabaseHelper.columnFuelType];
-      _colorController.text = vehicle[DatabaseHelper.columnVehicleColor] ?? '';
-      _regNoController.text = vehicle[DatabaseHelper.columnRegNo] ?? '';
-      _ownerNameController.text = vehicle[DatabaseHelper.columnOwnerName] ?? '';
-      _odometerController.text =
-          (vehicle[DatabaseHelper.columnCurrentOdometer] ?? '').toString();
+        // Handle Photos from the API
+        if (vehicle['Photos'] != null) {
+          _existingPhotos = List<Map<String, dynamic>>.from(vehicle['Photos']);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading vehicle from API: $e')),
+        );
+      }
     }
     setState(() {
       _isLoading = false;
@@ -119,57 +123,82 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
 
   Future<void> _saveVehicle() async {
     if (_formKey.currentState!.validate()) {
-      Map<String, dynamic> row = {
-        DatabaseHelper.columnMake: _makeController.text,
-        DatabaseHelper.columnModel: _modelController.text,
-        DatabaseHelper.columnVariant: _variantController.text.isNotEmpty
-            ? _variantController.text
-            : null,
-        DatabaseHelper.columnPurchaseDate: _purchaseDateController.text,
-        DatabaseHelper.columnFuelType: _selectedFuelType,
-        DatabaseHelper.columnVehicleColor: _colorController.text.isNotEmpty
-            ? _colorController.text
-            : null,
-        DatabaseHelper.columnRegNo: _regNoController.text,
-        DatabaseHelper.columnOwnerName: _ownerNameController.text,
-        DatabaseHelper.columnInitialOdometer:
-            int.tryParse(_odometerController.text) ?? 0,
-        DatabaseHelper.columnCurrentOdometer:
-            int.tryParse(_odometerController.text) ?? 0,
-      };
+      setState(() => _isLoading = true);
+      try {
+        final Map<String, String> fields = {
+          'make': _makeController.text,
+          'model': _modelController.text,
+          'variant': _variantController.text,
+          'purchase_date': _purchaseDateController.text,
+          'fuel_type': _selectedFuelType ?? '',
+          'vehicle_color': _colorController.text,
+          'reg_no': _regNoController.text,
+          'owner_name': _ownerNameController.text,
+          'initial_odometer': _odometerController.text,
+          'current_odometer': _odometerController.text,
+        };
 
-      int vehicleId;
-      if (widget.vehicleId != null) {
-        vehicleId = widget.vehicleId!;
-        row[DatabaseHelper.columnId] = vehicleId;
-        await dbHelper.updateVehicle(row);
-      } else {
-        vehicleId = await dbHelper.insertVehicle(row);
-      }
+        dynamic result;
+        if (_isEditMode) {
+          final int vehicleId = widget.vehicleId!;
+          String? firstPhotoName;
+          List<int>? firstPhotoBytes;
 
-      // --- PHOTO SAVE LOGIC ---
-      for (var imageFile in _newImageFiles) {
-        await dbHelper.insertPhoto({
-          DatabaseHelper.columnParentId: vehicleId,
-          DatabaseHelper.columnParentType: 'vehicle',
-          DatabaseHelper.columnUri: imageFile.path,
-        });
-      }
-      // --- END PHOTO SAVE LOGIC ---
+          if (_newImageFiles.isNotEmpty) {
+            final file = File(_newImageFiles.first.path);
+            firstPhotoBytes = await file.readAsBytes();
+            firstPhotoName = p.basename(_newImageFiles.first.path);
+          }
 
-      if (mounted) {
-        // --- TRIGGER REAL-TIME NOTIFICATIONS ---
-        // We only trigger if the odometer actually changed or is in edit mode
-        final int currentOdo = int.tryParse(_odometerController.text) ?? 0;
-        final settings = Provider.of<SettingsProvider>(context, listen: false);
+          await ApiService.updateVehicle(
+            vehicleId,
+            fields,
+            photoName: firstPhotoName,
+            photoBytes: firstPhotoBytes,
+          );
+          result = {'id': vehicleId}; // Set result for notification part
+        } else {
+          // Support single photo upload for now as per current ApiService capabilities
+          List<int>? photoBytes;
+          String? photoName;
+          if (_newImageFiles.isNotEmpty) {
+            photoBytes = await _newImageFiles.first.readAsBytes();
+            photoName = _newImageFiles.first.name;
+          }
 
-        await NotificationService().checkAndShowOdometerReminders(
-          vehicleId: vehicleId,
-          currentOdometer: currentOdo,
-          unitType: settings.unitType,
-        );
+          result = await ApiService.registerVehicle(
+            fields,
+            photoBytes: photoBytes,
+            photoName: photoName,
+          );
+        }
 
-        Navigator.of(context).pop();
+        if (result != null && mounted) {
+          final int vehicleId = result['id'];
+          final int currentOdo = int.tryParse(_odometerController.text) ?? 0;
+          final settings = Provider.of<SettingsProvider>(
+            context,
+            listen: false,
+          );
+
+          // We trigger local notification but note it expects SQLite data
+          // This might yield inconsistent results if SQLite isn't synced
+          await NotificationService().checkAndShowOdometerReminders(
+            vehicleId: vehicleId,
+            currentOdometer: currentOdo,
+            unitType: settings.unitType,
+          );
+
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error saving vehicle: $e')));
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
@@ -539,29 +568,87 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
                 ..._existingPhotos.asMap().entries.map((entry) {
                   final index = entry.key;
                   final photo = entry.value;
+                  final String photoPath = photo['uri'] ?? '';
+                  final String fullUrl = photoPath.startsWith('http')
+                      ? photoPath
+                      : '${ApiConstants.serverUrl}$photoPath';
+
                   return _buildPhotoItem(
-                    File(photo[DatabaseHelper.columnUri]),
+                    Image.network(fullUrl, fit: BoxFit.cover),
                     () {
                       final paths = _existingPhotos
-                          .map((p) => p[DatabaseHelper.columnUri] as String)
-                          .toList();
+                          .map((p) {
+                            final uri = p['uri'] ?? '';
+                            return uri.startsWith('http')
+                                ? uri
+                                : '${ApiConstants.serverUrl}$uri';
+                          })
+                          .toList()
+                          .cast<String>();
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => FullScreenPhotoViewer(
                             photoPaths: paths,
                             initialIndex: index,
+                            isNetwork: true,
                           ),
                         ),
                       );
                     },
                     () async {
-                      await dbHelper.deletePhoto(
-                        photo[DatabaseHelper.columnId],
-                      );
-                      setState(() {
-                        _existingPhotos.removeAt(index);
-                      });
+                      final photoId = photo['id'];
+
+                      if (photoId != null) {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Delete Photo'),
+                            content: const Text(
+                              'Are you sure you want to delete this photo from the server?',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.of(context).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.of(context).pop(true),
+                                child: const Text(
+                                  'Delete',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirmed == true) {
+                          try {
+                            await ApiService.deletePhoto(photoId);
+                            setState(() {
+                              _existingPhotos.removeAt(index);
+                            });
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to delete photo: $e'),
+                                ),
+                              );
+                            }
+                          }
+                        }
+                      } else {
+                        // This case should ideally not be hit for 'existingPhotos'
+                        // as they are expected to have an ID from the backend.
+                        // However, as a fallback, remove from UI if no ID.
+                        setState(() {
+                          _existingPhotos.removeAt(index);
+                        });
+                      }
                     },
                   );
                 }),
@@ -570,7 +657,7 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
                   final index = entry.key;
                   final file = entry.value;
                   return _buildPhotoItem(
-                    File(file.path),
+                    Image.file(File(file.path), fit: BoxFit.cover),
                     null, // No full screen for unsaved yet, or could add
                     () {
                       setState(() {
@@ -587,7 +674,7 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
   }
 
   Widget _buildPhotoItem(
-    File file,
+    Widget imageWidget,
     VoidCallback? onTap,
     VoidCallback onDelete,
   ) {
@@ -598,10 +685,9 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
           child: Container(
             width: 120,
             margin: const EdgeInsets.only(right: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              image: DecorationImage(image: FileImage(file), fit: BoxFit.cover),
-            ),
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
+            child: imageWidget,
           ),
         ),
         Positioned(

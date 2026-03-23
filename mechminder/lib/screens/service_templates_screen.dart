@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../service/database_helper.dart';
 import 'package:provider/provider.dart';
 import '../service/settings_provider.dart';
+import '../service/template_provider.dart';
+import '../models/service_template.dart';
 import '../widgets/common_popup.dart';
 
 class ServiceTemplatesScreen extends StatefulWidget {
@@ -13,10 +14,6 @@ class ServiceTemplatesScreen extends StatefulWidget {
 }
 
 class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
-  final dbHelper = DatabaseHelper.instance;
-  List<Map<String, dynamic>> _templates = [];
-  bool _isLoading = true;
-
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _daysController = TextEditingController();
   final TextEditingController _kmController = TextEditingController();
@@ -24,28 +21,19 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
   @override
   void initState() {
     super.initState();
-    _refreshTemplateList();
-  }
-
-  Future<void> _refreshTemplateList() async {
-    setState(() => _isLoading = true);
-    final allTemplates = await dbHelper.queryAllServiceTemplates();
-    setState(() {
-      _templates = allTemplates;
-      _isLoading = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<TemplateProvider>(context, listen: false).refreshTemplates();
     });
   }
 
   // --- DIALOGS ---
-  void _showAddEditTemplateDialog({Map<String, dynamic>? template}) {
+  void _showAddEditTemplateDialog({ServiceTemplate? template}) {
     bool isEditing = template != null;
 
     if (isEditing) {
-      _nameController.text = template[DatabaseHelper.columnName] ?? '';
-      _daysController.text = (template[DatabaseHelper.columnIntervalDays] ?? '')
-          .toString();
-      _kmController.text = (template[DatabaseHelper.columnIntervalKm] ?? '')
-          .toString();
+      _nameController.text = template.name;
+      _daysController.text = (template.intervalDays ?? '').toString();
+      _kmController.text = (template.intervalKm ?? '').toString();
     } else {
       _nameController.clear();
       _daysController.clear();
@@ -55,10 +43,8 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        final primaryColor = Provider.of<SettingsProvider>(
-          context,
-          listen: false,
-        ).primaryColor;
+        final settings = Provider.of<SettingsProvider>(context, listen: false);
+        final primaryColor = settings.primaryColor;
         return CommonPopup(
           title: isEditing ? 'Edit Auto Part' : 'Add New Auto Part',
           content: Column(
@@ -83,7 +69,7 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
               const SizedBox(height: 16),
               _buildTextField(
                 _kmController,
-                "Interval (km)",
+                "Interval (${settings.unitType})",
                 Icons.speed,
                 primaryColor,
                 false,
@@ -101,7 +87,7 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  _showDeleteConfirmation(template[DatabaseHelper.columnId]);
+                  _showDeleteConfirmation(template.id!);
                 },
                 style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
                 child: const Text('Delete'),
@@ -160,28 +146,26 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
     );
   }
 
-  void _saveTemplate(Map<String, dynamic>? template) async {
+  void _saveTemplate(ServiceTemplate? template) async {
     bool isEditing = template != null;
+    final provider = Provider.of<TemplateProvider>(context, listen: false);
 
     Map<String, dynamic> row = {
-      DatabaseHelper.columnName: _nameController.text.trim(),
-      DatabaseHelper.columnIntervalDays: int.tryParse(_daysController.text),
-      DatabaseHelper.columnIntervalKm: int.tryParse(_kmController.text),
+      'name': _nameController.text.trim(),
+      'interval_days': int.tryParse(_daysController.text),
+      'interval_km': int.tryParse(_kmController.text),
     };
 
-    if (row[DatabaseHelper.columnName] == null ||
-        row[DatabaseHelper.columnName].isEmpty) {
+    if (row['name'] == null || row['name'].isEmpty) {
       return;
     }
 
     if (isEditing) {
-      row[DatabaseHelper.columnId] = template[DatabaseHelper.columnId];
-      await dbHelper.updateServiceTemplate(row);
+      row['id'] = template.id;
+      await provider.updateTemplate(row);
     } else {
-      await dbHelper.insertServiceTemplate(row);
+      await provider.createTemplate(row);
     }
-
-    _refreshTemplateList();
   }
 
   void _showDeleteConfirmation(int id) {
@@ -207,9 +191,11 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
               ),
             ),
             onPressed: () async {
-              await dbHelper.deleteServiceTemplate(id);
-              Navigator.of(ctx).pop();
-              _refreshTemplateList();
+              await Provider.of<TemplateProvider>(
+                context,
+                listen: false,
+              ).deleteTemplate(id);
+              if (mounted) Navigator.of(ctx).pop();
             },
             child: const Text('Delete'),
           ),
@@ -224,6 +210,7 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
     final settings = Provider.of<SettingsProvider>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = settings.primaryColor;
+    final templateProvider = Provider.of<TemplateProvider>(context);
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF121212) : Colors.grey.shade50,
@@ -245,23 +232,27 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
           color: isDark ? Colors.white : Colors.grey.shade900,
         ),
       ),
-      body: _isLoading
+      body: templateProvider.isLoading
           ? Center(child: CircularProgressIndicator(color: primaryColor))
-          : _templates.isEmpty
+          : templateProvider.templates.isEmpty
           ? _buildEmptyState(isDark)
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: _templates.length,
-              separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final template = _templates[index];
-                return _buildTemplateCard(
-                  template,
-                  isDark,
-                  primaryColor,
-                  settings.unitType,
-                );
-              },
+          : RefreshIndicator(
+              onRefresh: () => templateProvider.refreshTemplates(),
+              color: primaryColor,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: templateProvider.templates.length,
+                separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final template = templateProvider.templates[index];
+                  return _buildTemplateCard(
+                    template,
+                    isDark,
+                    primaryColor,
+                    settings.unitType,
+                  );
+                },
+              ),
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddEditTemplateDialog(template: null),
@@ -305,14 +296,14 @@ class _ServiceTemplatesScreenState extends State<ServiceTemplatesScreen> {
   }
 
   Widget _buildTemplateCard(
-    Map<String, dynamic> template,
+    ServiceTemplate template,
     bool isDark,
     Color primaryColor,
     String unit,
   ) {
-    final name = template[DatabaseHelper.columnName] ?? 'Unknown Part';
-    final days = template[DatabaseHelper.columnIntervalDays];
-    final km = template[DatabaseHelper.columnIntervalKm];
+    final name = template.name;
+    final days = template.intervalDays;
+    final km = template.intervalKm;
 
     return Container(
       decoration: BoxDecoration(

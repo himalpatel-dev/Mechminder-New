@@ -9,6 +9,19 @@ exports.createReminder = async (req, res) => {
   }
 };
 
+exports.completeRemindersByTemplate = async (req, res) => {
+  try {
+    const { vehicle_id, template_id, service_id } = req.body;
+    await db.Reminder.update(
+      { status: 'completed', completed_by_service_id: service_id },
+      { where: { vehicle_id, template_id, status: 'pending' } }
+    );
+    res.json({ message: 'Reminders completed' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
 exports.getRemindersForVehicle = async (req, res) => {
   try {
     const reminders = await db.Reminder.findAll({

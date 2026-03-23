@@ -18,6 +18,9 @@ const User = require('./User');
 User.hasMany(Vehicle, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 Vehicle.belongsTo(User, { foreignKey: 'user_id' });
 
+User.hasMany(Document, { foreignKey: 'user_id', onDelete: 'CASCADE' });
+Document.belongsTo(User, { foreignKey: 'user_id' });
+
 Vehicle.hasMany(Service, { foreignKey: 'vehicle_id', onDelete: 'CASCADE' });
 Service.belongsTo(Vehicle, { foreignKey: 'vehicle_id' });
 
@@ -48,6 +51,12 @@ TodoList.belongsTo(Vehicle, { foreignKey: 'vehicle_id' });
 // Polymorphic association for Photos
 Vehicle.hasMany(Photo, { foreignKey: 'parent_id', constraints: false, scope: { parent_type: 'vehicle' } });
 Photo.belongsTo(Vehicle, { foreignKey: 'parent_id', constraints: false });
+
+Service.hasMany(Photo, { foreignKey: 'parent_id', constraints: false, as: 'Photos', scope: { parent_type: 'service' } });
+Photo.belongsTo(Service, { foreignKey: 'parent_id', constraints: false });
+
+Expense.hasMany(Photo, { foreignKey: 'parent_id', constraints: false, as: 'Photos', scope: { parent_type: 'expense' } });
+Photo.belongsTo(Expense, { foreignKey: 'parent_id', constraints: false });
 
 module.exports = {
   sequelize,

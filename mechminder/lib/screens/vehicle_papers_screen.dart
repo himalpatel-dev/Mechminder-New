@@ -5,7 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import '../service/database_helper.dart';
+import '../service/api_service.dart';
 import '../service/settings_provider.dart';
 import '../widgets/common_popup.dart';
 
@@ -18,7 +18,6 @@ class VehiclePapersScreen extends StatefulWidget {
 }
 
 class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
-  final dbHelper = DatabaseHelper.instance;
   bool _isLoading = true;
   List<Map<String, dynamic>> _papers = [];
 
@@ -51,11 +50,9 @@ class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
   }
 
   Future<void> _refreshPapersList() async {
-    final allPapers = await dbHelper.queryVehiclePapersForVehicle(
-      widget.vehicleId,
-    );
+    final allPapers = await ApiService.getPapersForVehicle(widget.vehicleId);
     setState(() {
-      _papers = allPapers;
+      _papers = allPapers.map((p) => Map<String, dynamic>.from(p)).toList();
       _isLoading = false;
     });
   }
@@ -93,18 +90,13 @@ class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
     _tempFilePath = null;
 
     if (isEditing) {
-      _typeController.text = paper[DatabaseHelper.columnPaperType] ?? '';
-      _referenceNoController.text =
-          paper[DatabaseHelper.columnReferenceNo] ?? '';
-      _providerNameController.text =
-          paper[DatabaseHelper.columnProviderName] ?? '';
-      _descriptionController.text =
-          paper[DatabaseHelper.columnDescription] ?? '';
-      _costController.text = (paper[DatabaseHelper.columnCost] ?? '')
-          .toString();
-      _expiryDateController.text =
-          paper[DatabaseHelper.columnPaperExpiryDate] ?? '';
-      _tempFilePath = paper[DatabaseHelper.columnFilePath];
+      _typeController.text = paper['paper_type'] ?? '';
+      _referenceNoController.text = paper['reference_no'] ?? '';
+      _providerNameController.text = paper['provider_name'] ?? '';
+      _descriptionController.text = paper['description'] ?? '';
+      _costController.text = (paper['cost'] ?? '').toString();
+      _expiryDateController.text = paper['paper_expiry_date'] ?? '';
+      _tempFilePath = paper['file_path'];
     } else {
       _typeController.text = 'Insurance';
     }
@@ -251,7 +243,7 @@ class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
                   TextButton(
                     onPressed: () {
                       Navigator.of(ctx).pop();
-                      _showDeleteConfirmation(paper[DatabaseHelper.columnId]);
+                      _showDeleteConfirmation(paper['id']);
                     },
                     child: const Text(
                       'Delete',
@@ -268,7 +260,7 @@ class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
                     if (_paperFormKey.currentState!.validate()) {
                       await _savePaper(
                         widget.vehicleId,
-                        isEditing ? paper[DatabaseHelper.columnId] : null,
+                        isEditing ? paper['id'] : null,
                       );
                       if (mounted) {
                         Navigator.of(ctx).pop();
@@ -339,29 +331,26 @@ class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
     }
 
     Map<String, dynamic> row = {
-      DatabaseHelper.columnVehicleId: vehicleId,
-      DatabaseHelper.columnPaperType: _typeController.text,
-      DatabaseHelper.columnReferenceNo: _referenceNoController.text,
-      DatabaseHelper.columnProviderName: _providerNameController.text.isNotEmpty
+      'vehicle_id': vehicleId,
+      'paper_type': _typeController.text,
+      'reference_no': _referenceNoController.text,
+      'provider_name': _providerNameController.text.isNotEmpty
           ? _providerNameController.text
           : null,
-      DatabaseHelper.columnDescription: _descriptionController.text.isNotEmpty
+      'description': _descriptionController.text.isNotEmpty
           ? _descriptionController.text
           : null,
-      DatabaseHelper.columnCost: double.tryParse(_costController.text),
-      DatabaseHelper.columnPaperExpiryDate:
-          _expiryDateController.text.isNotEmpty
+      'cost': double.tryParse(_costController.text),
+      'paper_expiry_date': _expiryDateController.text.isNotEmpty
           ? _expiryDateController.text
           : null,
-      DatabaseHelper.columnCreatedAt: DateTime.now().toIso8601String(),
-      DatabaseHelper.columnFilePath: finalFilePath,
+      'file_path': finalFilePath,
     };
 
     if (paperId != null) {
-      row[DatabaseHelper.columnId] = paperId;
-      await dbHelper.updateVehiclePaper(row);
+      await ApiService.updatePaper(paperId, row);
     } else {
-      await dbHelper.insertVehiclePaper(row);
+      await ApiService.createPaper(row);
     }
   }
 
@@ -384,19 +373,9 @@ class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
-              final paper = await dbHelper.queryVehiclePaperById(id);
-              if (paper != null &&
-                  paper[DatabaseHelper.columnFilePath] != null) {
-                final file = File(paper[DatabaseHelper.columnFilePath]);
-                if (await file.exists()) {
-                  try {
-                    await file.delete();
-                  } catch (e) {
-                    print("Error deleting file: $e");
-                  }
-                }
-              }
-              await dbHelper.deleteVehiclePaper(id);
+              // Note: For now we only have metadata on server.
+              // We'll just delete the server record.
+              await ApiService.deletePaper(id);
               if (mounted) {
                 Navigator.of(ctx).pop();
               }
@@ -474,13 +453,13 @@ class _VehiclePapersScreenState extends State<VehiclePapersScreen> {
     bool isDark,
     Color primaryColor,
   ) {
-    final String type = paper[DatabaseHelper.columnPaperType];
-    final String referenceNo = paper[DatabaseHelper.columnReferenceNo] ?? 'N/A';
-    final String? providerName = paper[DatabaseHelper.columnProviderName];
-    final String? description = paper[DatabaseHelper.columnDescription];
-    final double? cost = paper[DatabaseHelper.columnCost];
-    final String? expiryDate = paper[DatabaseHelper.columnPaperExpiryDate];
-    final String? filePath = paper[DatabaseHelper.columnFilePath];
+    final String type = paper['paper_type'];
+    final String referenceNo = paper['reference_no'] ?? 'N/A';
+    final String? providerName = paper['provider_name'];
+    final String? description = paper['description'];
+    final double? cost = (paper['cost'] as num?)?.toDouble();
+    final String? expiryDate = paper['paper_expiry_date'];
+    final String? filePath = paper['file_path'];
 
     bool isExpired = false;
     if (expiryDate != null) {

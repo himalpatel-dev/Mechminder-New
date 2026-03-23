@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../service/database_helper.dart';
 
 class StatsPieChart extends StatefulWidget {
   final List<Map<String, dynamic>> spendingData;
@@ -127,7 +126,7 @@ class _StatsPieChartState extends State<StatsPieChart> {
     // will be handled by the theme)
     return List.generate(widget.spendingData.length, (i) {
       final item = widget.spendingData[i];
-      final String category = item[DatabaseHelper.columnCategory];
+      final String category = item['category'];
 
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4.0),

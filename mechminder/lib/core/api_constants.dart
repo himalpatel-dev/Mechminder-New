@@ -1,5 +1,6 @@
 class ApiConstants {
-  static const String serverUrl = 'http://192.168.29.155:5000';
+  //static const String serverUrl = 'http://192.168.29.155:5000';
+  static const String serverUrl = 'http://192.168.27.58:5000';
   static const String baseUrl = '$serverUrl/api';
 
   // Auth
@@ -40,4 +41,9 @@ class ApiConstants {
   // Users
   static const String userUpdateFCM = '/users/fcm-token';
   static const String userUpdatePurchase = '/users/purchase-link';
+
+  // Documents
+  static const String documents = '/documents';
+  static const String vehicleDocuments = '/vehicles/{vehicleId}/documents';
+  static const String documentDetails = '/documents/{id}';
 }

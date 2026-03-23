@@ -27,9 +27,11 @@ const upload = require('../middleware/uploadMiddleware');
 router.post('/vehicles', upload.single('photo'), vehicleController.createVehicle);
 router.get('/vehicles', vehicleController.getAllVehicles);
 router.get('/vehicles/:id', vehicleController.getVehicleById);
-router.put('/vehicles/:id', vehicleController.updateVehicle);
+router.put('/vehicles/:id', upload.single('photo'), vehicleController.updateVehicle);
 router.put('/vehicles/:id/odometer', vehicleController.updateVehicleOdometer);
 router.delete('/vehicles/:id', vehicleController.deleteVehicle);
+router.delete('/photos/:id', vehicleController.deletePhoto);
+router.post('/photos', upload.single('photo'), vehicleController.uploadPhoto);
 
 // Vendors
 router.post('/vendors', vendorController.createVendor);
@@ -40,12 +42,15 @@ router.delete('/vendors/:id', vendorController.deleteVendor);
 // Services
 router.post('/services', serviceController.createService);
 router.get('/services/:id', serviceController.getServiceById);
+router.put('/services/:id', serviceController.updateService);
+router.delete('/services/:id', serviceController.deleteService);
 router.post('/services/:id/items', serviceController.createServiceItem);
 router.get('/vehicles/:vehicleId/services', serviceController.getServicesForVehicle);
 
 // Reminders
 router.post('/reminders', reminderController.createReminder);
 router.get('/vehicles/:vehicleId/reminders', reminderController.getRemindersForVehicle);
+router.put('/reminders/complete-by-template', reminderController.completeRemindersByTemplate);
 router.put('/reminders/:id', reminderController.updateReminder);
 router.delete('/reminders/:id', reminderController.deleteReminder);
 
@@ -76,5 +81,14 @@ router.get('/vehicles/:vehicleId/papers', paperController.getPapersForVehicle);
 router.post('/papers', paperController.createPaper);
 router.put('/papers/:id', paperController.updatePaper);
 router.delete('/papers/:id', paperController.deletePaper);
+
+// Documents
+const documentController = require('../controllers/documentController');
+router.get('/documents', documentController.getAllDocuments);
+router.get('/vehicles/:vehicleId/documents', documentController.getDocumentsForVehicle);
+router.get('/documents/:id', documentController.getDocumentById);
+router.post('/documents', upload.single('document'), documentController.createDocument);
+router.put('/documents/:id', upload.single('document'), documentController.updateDocument);
+router.delete('/documents/:id', documentController.deleteDocument);
 
 module.exports = router;

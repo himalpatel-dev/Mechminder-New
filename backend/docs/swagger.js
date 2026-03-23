@@ -170,6 +170,24 @@
  *         description:
  *           type: string
  *
+ *     Document:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *           readOnly: true
+ *         vehicle_id:
+ *           type: integer
+ *         user_id:
+ *           type: integer
+ *           readOnly: true
+ *         doc_type:
+ *           type: string
+ *         description:
+ *           type: string
+ *         file_path:
+ *           type: string
+ *
  * /users/fcm-token:
  *   post:
  *     summary: Update FCM token for the user
@@ -641,4 +659,84 @@
  *     responses:
  *       200:
  *         description: Papers list
+ *
+ * /documents:
+ *   get:
+ *     summary: Get all documents for the current user
+ *     tags: [Documents]
+ *     responses:
+ *       200:
+ *         description: List of documents
+ *   post:
+ *     summary: Create a new document (supports multi-part with document file)
+ *     tags: [Documents]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               vehicle_id: {type: integer}
+ *               doc_type: {type: string}
+ *               description: {type: string}
+ *               document: {type: string, format: binary}
+ *     responses:
+ *       201:
+ *         description: Created
+ * /documents/{id}:
+ *   get:
+ *     summary: Get document details
+ *     tags: [Documents]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: {type: integer}
+ *     responses:
+ *       200:
+ *         description: Document details
+ *   put:
+ *     summary: Update document (supports multi-part with document file)
+ *     tags: [Documents]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: {type: integer}
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               doc_type: {type: string}
+ *               description: {type: string}
+ *               document: {type: string, format: binary}
+ *     responses:
+ *       200:
+ *         description: Updated
+ *   delete:
+ *     summary: Remove document
+ *     tags: [Documents]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: {type: integer}
+ *     responses:
+ *       204:
+ *         description: Deleted
+ * /vehicles/{vehicleId}/documents:
+ *   get:
+ *     summary: Get all documents for a vehicle
+ *     tags: [Documents]
+ *     parameters:
+ *       - in: path
+ *         name: vehicleId
+ *         required: true
+ *         schema: {type: integer}
+ *     responses:
+ *       200:
+ *         description: Documents list
  */

@@ -1,14 +1,13 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../service/database_helper.dart'; // Make sure this path is correct
-import '../service/settings_provider.dart'; // Make sure this path is correct
-// Make sure this path is correct
-import '../widgets/full_screen_photo_viewer.dart'; // Make sure this path is correct
+import '../service/api_service.dart';
+import '../service/settings_provider.dart';
+import '../core/api_constants.dart';
+import '../widgets/full_screen_photo_viewer.dart';
 import 'package:carousel_slider/carousel_slider.dart';
-import '../service/notification_service.dart'; // Make sure this path is correct
+import '../service/notification_service.dart';
 
 class OverviewTab extends StatefulWidget {
   final int vehicleId;
@@ -25,7 +24,6 @@ class OverviewTab extends StatefulWidget {
 }
 
 class OverviewTabState extends State<OverviewTab> {
-  final dbHelper = DatabaseHelper.instance;
   final TextEditingController _odometerController = TextEditingController();
 
   // ignore: unused_field
@@ -64,26 +62,22 @@ class OverviewTabState extends State<OverviewTab> {
     try {
       // 1. Get all data
       final data = await Future.wait([
-        dbHelper.queryVehicleById(widget.vehicleId),
-        dbHelper.queryRemindersForVehicle(widget.vehicleId),
-        dbHelper.queryPhotosForParent(widget.vehicleId, 'vehicle'),
-        dbHelper.queryVehiclePapersForVehicle(
-          widget.vehicleId,
-        ), // <-- NEW: Get papers
+        ApiService.getVehicleById(widget.vehicleId),
+        ApiService.getRemindersForVehicle(widget.vehicleId),
+        ApiService.getPapersForVehicle(widget.vehicleId),
       ]);
       if (!mounted) return;
 
       final vehicleData = data[0] as Map<String, dynamic>?;
-      final serviceReminders = data[1] as List<Map<String, dynamic>>;
-      final photos = data[2] as List<Map<String, dynamic>>;
-      final paperReminders = data[3] as List<Map<String, dynamic>>; // <-- NEW
+      final serviceReminders = data[1] as List<dynamic>;
+      final paperReminders = data[2] as List<dynamic>;
 
       if (vehicleData == null) {
         throw Exception("Vehicle data not found (ID: ${widget.vehicleId})");
       }
 
       // --- 2. Combine and Process Reminders ---
-      _currentOdo = vehicleData[DatabaseHelper.columnCurrentOdometer] ?? 0;
+      _currentOdo = vehicleData['current_odometer'] ?? 0;
       final String today = DateTime.now().toIso8601String().split('T')[0];
       final List<Map<String, dynamic>> overdue = [];
       final List<Map<String, dynamic>> comingSoon = [];
@@ -92,47 +86,52 @@ class OverviewTabState extends State<OverviewTab> {
       for (var reminder in serviceReminders) {
         bool isDateOverdue = false;
         bool isOdoOverdue = false;
-        final String? dueDate = reminder[DatabaseHelper.columnDueDate];
+        final String? dueDate = reminder['due_date'];
         if (dueDate != null && dueDate.compareTo(today) < 0) {
           isDateOverdue = true;
         }
-        final int? dueOdo = reminder[DatabaseHelper.columnDueOdometer];
+        final int? dueOdo = reminder['due_odometer'];
         if (dueOdo != null && _currentOdo >= dueOdo) {
           isOdoOverdue = true;
         }
         if (isDateOverdue || isOdoOverdue) {
-          overdue.add(reminder);
+          overdue.add(Map<String, dynamic>.from(reminder));
         } else {
-          comingSoon.add(reminder);
+          comingSoon.add(Map<String, dynamic>.from(reminder));
         }
       }
 
       // --- NEW: Add paper reminders ---
       for (var paper in paperReminders) {
-        final String? expiryDate = paper[DatabaseHelper.columnPaperExpiryDate];
+        final String? expiryDate = paper['paper_expiry_date'];
         if (expiryDate != null && expiryDate.isNotEmpty) {
-          final paperReminder = {...paper, 'isPaperReminder': true};
-          if (expiryDate.compareTo(today) < 0) {
+          final paperReminder = {
+            ...Map<String, dynamic>.from(paper),
+            'isPaperReminder': true,
+          };
+          if (expiryDate.compareTo(today) <= 0) {
+            // Fix: compare inclusive for today as overdue
             overdue.add(paperReminder);
           } else {
             comingSoon.add(paperReminder);
           }
         }
       }
-      // --- END NEW ---
+
+      final List<dynamic> photos = vehicleData['Photos'] ?? [];
 
       setState(() {
         _vehicle = vehicleData;
         _odometerController.text = _currentOdo.toString();
-        _vehiclePhotos = List.from(photos);
+        _vehiclePhotos = photos
+            .map((p) => Map<String, dynamic>.from(p))
+            .toList();
         _overdueReminders = overdue;
         _comingSoonReminders = comingSoon;
         _isLoading = false;
         _errorMessage = null;
       });
     } catch (e) {
-      print("[DEBUG OverviewTab] !!!--- ERROR in _loadData ---!!!");
-      print(e);
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -148,7 +147,7 @@ class OverviewTabState extends State<OverviewTab> {
 
     try {
       // 1. Save the new odometer
-      await dbHelper.updateVehicleOdometer(widget.vehicleId, newOdometer);
+      await ApiService.updateOdometer(widget.vehicleId, newOdometer);
 
       scaffoldMessenger.showSnackBar(
         const SnackBar(
@@ -176,7 +175,6 @@ class OverviewTabState extends State<OverviewTab> {
       }
     }
 
-    // 6. Reload all data to refresh the UI lists
     loadData();
   }
 
@@ -185,9 +183,9 @@ class OverviewTabState extends State<OverviewTab> {
     Map<String, dynamic> reminder,
     SettingsProvider settings,
   ) {
-    final int reminderId = reminder[DatabaseHelper.columnId];
-    String? currentDueDate = reminder[DatabaseHelper.columnDueDate];
-    int? currentDueOdo = reminder[DatabaseHelper.columnDueOdometer];
+    final int reminderId = reminder['id'];
+    String? currentDueDate = reminder['due_date'];
+    int? currentDueOdo = reminder['due_odometer'];
     final TextEditingController daysController = TextEditingController(
       text: '7',
     );
@@ -242,10 +240,10 @@ class OverviewTabState extends State<OverviewTab> {
                 newDueOdometer = currentDueOdo + odoToAdd;
               }
 
-              await dbHelper.updateReminder(
+              await ApiService.updateReminder(
                 reminderId,
-                newDueDate,
-                newDueOdometer,
+                dueDate: newDueDate,
+                dueOdometer: newDueOdometer,
               );
 
               if (mounted) {
@@ -348,12 +346,11 @@ class OverviewTabState extends State<OverviewTab> {
                       ),
                     ],
                   ),
-                  if (_vehicle != null &&
-                      _vehicle![DatabaseHelper.columnOdometerUpdatedAt] != null)
+                  if (_vehicle != null && _vehicle!['updated_at'] != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
                       child: Text(
-                        'Last updated: ${_formatDate(_vehicle![DatabaseHelper.columnOdometerUpdatedAt])}',
+                        'Last updated: ${_formatDate(_vehicle!['updated_at'])}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -450,19 +447,25 @@ class OverviewTabState extends State<OverviewTab> {
                 },
               ),
               items: _vehiclePhotos.map((photo) {
-                final photoPath = photo[DatabaseHelper.columnUri];
+                final photoPath = photo['uri'] ?? '';
+                final fullUri = photoPath.startsWith('http')
+                    ? photoPath
+                    : '${ApiConstants.serverUrl}$photoPath';
                 return Builder(
                   builder: (BuildContext context) {
                     return GestureDetector(
                       onTap: () {
-                        final paths = _vehiclePhotos
-                            .map((p) => p[DatabaseHelper.columnUri] as String)
-                            .toList();
+                        final paths = _vehiclePhotos.map((p) {
+                          final uri = p['uri'] ?? '';
+                          return uri.startsWith('http')
+                              ? uri
+                              : '${ApiConstants.serverUrl}$uri';
+                        }).toList();
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => FullScreenPhotoViewer(
-                              photoPaths: paths,
+                              photoPaths: paths.cast<String>(),
                               initialIndex: _currentPhotoIndex,
                             ),
                           ),
@@ -472,7 +475,7 @@ class OverviewTabState extends State<OverviewTab> {
                         width: MediaQuery.of(context).size.width,
                         decoration: BoxDecoration(
                           image: DecorationImage(
-                            image: FileImage(File(photoPath)),
+                            image: NetworkImage(fullUri),
                             fit: BoxFit.cover,
                           ),
                         ),
@@ -575,16 +578,16 @@ class OverviewTabState extends State<OverviewTab> {
     IconData icon;
     if (isPaper) {
       // It's a Vehicle Paper
-      title = reminder[DatabaseHelper.columnPaperType] ?? 'Paper';
-      dueDate = reminder[DatabaseHelper.columnPaperExpiryDate] ?? 'N/A';
+      title = reminder['paper_type'] ?? 'Paper';
+      dueDate = reminder['paper_expiry_date'] ?? 'N/A';
       dueOdo = 'N/A'; // Papers don't have odometer
       icon = _getIconForPaperType(title);
     } else {
-      dueDate = reminder[DatabaseHelper.columnDueDate] ?? 'N/A';
-      dueOdo = reminder[DatabaseHelper.columnDueOdometer]?.toString() ?? 'N/A';
+      dueDate = reminder['due_date'] ?? 'N/A';
+      dueOdo = reminder['due_odometer']?.toString() ?? 'N/A';
       title =
-          reminder['template_name'] ??
-          reminder[DatabaseHelper.columnNotes] ??
+          reminder['ServiceTemplate']?['name'] ??
+          reminder['notes'] ??
           'Reminder';
       icon = Icons.notifications_active;
     }
@@ -632,8 +635,12 @@ class OverviewTabState extends State<OverviewTab> {
                 ),
                 tooltip: 'Mark as Complete',
                 onPressed: () async {
-                  int id = reminder[DatabaseHelper.columnId];
-                  await dbHelper.deleteReminder(id);
+                  int id = reminder['id'];
+                  if (isPaper) {
+                    await ApiService.deletePaper(id);
+                  } else {
+                    await ApiService.deleteReminder(id);
+                  }
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(

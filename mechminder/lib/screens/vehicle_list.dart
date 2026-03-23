@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
-import '../service/database_helper.dart';
-import 'vehicle_detail.dart';
-import 'package:provider/provider.dart';
-import '../service/settings_provider.dart';
 import 'dart:io';
-import '../widgets/mini_spending_chart.dart'; // Make sure this path is correct
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../service/api_service.dart';
+import '../service/settings_provider.dart';
+import '../core/api_constants.dart';
+import 'vehicle_detail.dart'; // Add this back
+import '../widgets/mini_spending_chart.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
 class VehicleListScreen extends StatefulWidget {
@@ -15,8 +16,7 @@ class VehicleListScreen extends StatefulWidget {
 }
 
 class VehicleListScreenState extends State<VehicleListScreen> {
-  final dbHelper = DatabaseHelper.instance;
-  List<Map<String, dynamic>> _vehicles = [];
+  List<dynamic> _vehicles = [];
   bool _isLoading = true;
 
   @override
@@ -26,30 +26,25 @@ class VehicleListScreenState extends State<VehicleListScreen> {
   }
 
   void refreshVehicleList() async {
-    // (This function is unchanged)
     setState(() {
       _isLoading = true;
     });
-    final allVehicles = await dbHelper.queryAllVehiclesWithNextReminder();
-    List<Map<String, dynamic>> vehiclesWithSpending = [];
-    for (var vehicle in allVehicles) {
-      final serviceTotal = await dbHelper.queryTotalSpendingForType(
-        vehicle[DatabaseHelper.columnId],
-        'services',
-      );
-      final expenseTotal = await dbHelper.queryTotalSpendingForType(
-        vehicle[DatabaseHelper.columnId],
-        'expenses',
-      );
-      Map<String, dynamic> vehicleData = Map.from(vehicle);
-      vehicleData['service_total'] = serviceTotal;
-      vehicleData['expense_total'] = expenseTotal;
-      vehiclesWithSpending.add(vehicleData);
+    try {
+      final allVehicles = await ApiService.getVehicles();
+      setState(() {
+        _vehicles = allVehicles;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading dashboard: $e')));
+      }
+      setState(() {
+        _isLoading = false;
+      });
     }
-    setState(() {
-      _vehicles = vehiclesWithSpending;
-      _isLoading = false;
-    });
   }
 
   @override
@@ -87,8 +82,8 @@ class VehicleListScreenState extends State<VehicleListScreen> {
                 // (All your data logic is unchanged)
                 String nextReminderText = "No upcoming reminders";
                 final String? nextTemplate = vehicle['template_name'];
-                final String? nextDate = vehicle[DatabaseHelper.columnDueDate];
-                final int? nextOdo = vehicle[DatabaseHelper.columnDueOdometer];
+                final String? nextDate = vehicle['due_date'];
+                final int? nextOdo = vehicle['due_odometer'];
                 if (nextTemplate != null) {
                   if (nextDate != null) {
                     nextReminderText = 'Next: $nextTemplate (by $nextDate)';
@@ -97,8 +92,10 @@ class VehicleListScreenState extends State<VehicleListScreen> {
                         'Next: $nextTemplate (by $nextOdo ${settings.unitType})';
                   }
                 }
-                final double serviceTotal = vehicle['service_total'] ?? 0.0;
-                final double expenseTotal = vehicle['expense_total'] ?? 0.0;
+                final double serviceTotal = (vehicle['service_total'] ?? 0)
+                    .toDouble();
+                final double expenseTotal = (vehicle['expense_total'] ?? 0)
+                    .toDouble();
                 final double totalSpending = serviceTotal + expenseTotal;
 
                 return AnimationConfiguration.staggeredList(
@@ -117,8 +114,7 @@ class VehicleListScreenState extends State<VehicleListScreen> {
                         ),
                         child: InkWell(
                           onTap: () {
-                            final int vehicleId =
-                                vehicle[DatabaseHelper.columnId];
+                            final int vehicleId = vehicle['id'];
                             Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -159,7 +155,7 @@ class VehicleListScreenState extends State<VehicleListScreen> {
                                     left: 12,
                                     right: 12,
                                     child: Text(
-                                      '${vehicle[DatabaseHelper.columnMake]} ${vehicle[DatabaseHelper.columnModel]}',
+                                      '${vehicle['make']} ${vehicle['model']}',
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
@@ -183,7 +179,7 @@ class VehicleListScreenState extends State<VehicleListScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            '${vehicle[DatabaseHelper.columnPurchaseDate] ?? 'N/A'} | ${vehicle[DatabaseHelper.columnRegNo] ?? 'N/A'}',
+                                            '${vehicle['purchase_date'] ?? 'N/A'} | ${vehicle['reg_no'] ?? 'N/A'}',
                                             style: const TextStyle(
                                               fontSize: 12,
                                               color: Colors.grey,
@@ -280,21 +276,46 @@ class VehicleListScreenState extends State<VehicleListScreen> {
           );
   }
 
-  // (This helper function is unchanged)
+  // (Unified helper function for network/file images)
   Widget _buildVehicleImage(String? photoPath) {
     if (photoPath != null && photoPath.isNotEmpty) {
-      return Image.file(
-        File(photoPath),
-        fit: BoxFit.cover,
-        cacheWidth: 800, // Optimize memory for list items
+      final isNetwork =
+          photoPath.startsWith('http') || photoPath.startsWith('/uploads');
+      final fullUrl = isNetwork && !photoPath.startsWith('http')
+          ? '${ApiConstants.serverUrl}$photoPath'
+          : photoPath;
 
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            color: Colors.grey[200],
-            child: Icon(Icons.broken_image, color: Colors.grey[400], size: 40),
-          );
-        },
-      );
+      return isNetwork
+          ? Image.network(
+              fullUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.grey[200],
+                  child: Icon(
+                    Icons.broken_image,
+                    color: Colors.grey[400],
+                    size: 40,
+                  ),
+                );
+              },
+            )
+          : Image.file(
+              File(photoPath),
+              fit: BoxFit.cover,
+              cacheWidth: 800, // Optimize memory for list items
+
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.grey[200],
+                  child: Icon(
+                    Icons.broken_image,
+                    color: Colors.grey[400],
+                    size: 40,
+                  ),
+                );
+              },
+            );
     } else {
       return Container(
         color: Colors.grey[200],

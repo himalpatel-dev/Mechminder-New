@@ -2,14 +2,13 @@ import 'dart:io';
 import 'package:excel/excel.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'database_helper.dart'; // Make sure this path is correct
-import 'settings_provider.dart'; // Make sure this path is correct
+import 'api_service.dart';
+import 'settings_provider.dart';
 
 class ExcelService {
-  final DatabaseHelper dbHelper;
   final SettingsProvider settings;
 
-  ExcelService({required this.dbHelper, required this.settings});
+  ExcelService({required this.settings});
 
   Future<String?> createExcelReport(int vehicleId, String vehicleName) async {
     try {
@@ -66,7 +65,42 @@ class ExcelService {
       }
 
       // --- 5. GET DATA AND BUILD GROUPED ROWS ---
-      final serviceData = await dbHelper.queryServiceReport(vehicleId);
+      final List<dynamic> rawServices = await ApiService.getServicesForVehicle(
+        vehicleId,
+      );
+
+      // Flatten the data for the report logic
+      final List<Map<String, dynamic>> serviceData = [];
+      for (var s in rawServices) {
+        final List<dynamic> items = s['ServiceItems'] ?? [];
+        if (items.isEmpty) {
+          serviceData.add({
+            'id': s['id'],
+            'service_date': s['service_date'],
+            'odometer': s['odometer'],
+            'service_name': s['service_name'],
+            'vendor_name': s['Vendor']?['name'] ?? 'N/A',
+            'part_name': 'N/A',
+            'part_qty': '',
+            'part_cost': '',
+            'part_total': '',
+          });
+        } else {
+          for (var item in items) {
+            serviceData.add({
+              'id': s['id'],
+              'service_date': s['service_date'],
+              'odometer': s['odometer'],
+              'service_name': s['service_name'],
+              'vendor_name': s['Vendor']?['name'] ?? 'N/A',
+              'part_name': item['name'] ?? 'N/A',
+              'part_qty': item['qty'],
+              'part_cost': item['unit_cost'],
+              'part_total': item['total_cost'],
+            });
+          }
+        }
+      }
 
       int? lastServiceId;
       int serialNumber = 0;
@@ -77,7 +111,7 @@ class ExcelService {
 
       for (int i = 0; i < serviceData.length; i++) {
         final row = serviceData[i];
-        final currentServiceId = row[DatabaseHelper.columnId];
+        final currentServiceId = row['id'];
         final bool isNewService = (currentServiceId != lastServiceId);
 
         if (isNewService) {
@@ -90,11 +124,9 @@ class ExcelService {
           dataRowIndexes.add(serviceSheet.maxRows); // Track this row index
           serviceSheet.appendRow([
             TextCellValue(serialNumber.toString()),
-            TextCellValue(row[DatabaseHelper.columnServiceDate] ?? ''),
-            TextCellValue(
-              (row[DatabaseHelper.columnOdometer] ?? '').toString(),
-            ),
-            TextCellValue(row[DatabaseHelper.columnServiceName] ?? ''),
+            TextCellValue(row['service_date'] ?? ''),
+            TextCellValue((row['odometer'] ?? '').toString()),
+            TextCellValue(row['service_name'] ?? ''),
             TextCellValue(row['vendor_name'] ?? 'N/A'),
             TextCellValue(row['part_name'] ?? 'N/A'), // Part 1
             TextCellValue((row['part_qty'] ?? '').toString()),
@@ -189,7 +221,10 @@ class ExcelService {
         expenseSheet.setColumnAutoFit(i); // Your correct syntax
       }
 
-      final expenseData = await dbHelper.queryExpensesForVehicle(vehicleId);
+      final expenseDataRaw = await ApiService.getExpensesForVehicle(vehicleId);
+      final expenseData = expenseDataRaw
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
       double expenseGrandTotal = 0.0;
 
       // --- THIS IS THE FIX: Track data rows ---
@@ -197,14 +232,14 @@ class ExcelService {
       for (var row in expenseData) {
         expenseDataRowIndexes.add(expenseSheet.maxRows); // Track this row
         expenseSheet.appendRow([
-          TextCellValue(row[DatabaseHelper.columnServiceDate] ?? ''),
-          TextCellValue(row[DatabaseHelper.columnCategory] ?? ''),
-          TextCellValue((row[DatabaseHelper.columnTotalCost] ?? '').toString()),
-          TextCellValue(row[DatabaseHelper.columnNotes] ?? 'N/A'),
+          TextCellValue(row['service_date'] ?? ''),
+          TextCellValue(row['category'] ?? ''),
+          TextCellValue((row['total_cost'] ?? '').toString()),
+          TextCellValue(row['notes'] ?? 'N/A'),
         ]);
 
         double? expenseTotal = double.tryParse(
-          (row[DatabaseHelper.columnTotalCost] ?? '0').toString(),
+          (row['total_cost'] ?? '0').toString(),
         );
         if (expenseTotal != null) {
           expenseGrandTotal += expenseTotal;
@@ -273,24 +308,25 @@ class ExcelService {
         paperSheet.setColumnAutoFit(i);
       }
 
-      final paperData = await dbHelper.queryVehiclePapersForVehicle(vehicleId);
+      final paperDataRaw = await ApiService.getPapersForVehicle(vehicleId);
+      final paperData = paperDataRaw
+          .map((p) => Map<String, dynamic>.from(p))
+          .toList();
       double paperGrandTotal = 0.0;
       List<int> paperDataRowIndexes = [];
 
       for (var row in paperData) {
         paperDataRowIndexes.add(paperSheet.maxRows);
         paperSheet.appendRow([
-          TextCellValue(row[DatabaseHelper.columnPaperType] ?? ''),
-          TextCellValue(row[DatabaseHelper.columnProviderName] ?? 'N/A'),
-          TextCellValue(row[DatabaseHelper.columnReferenceNo] ?? 'N/A'),
-          TextCellValue(row[DatabaseHelper.columnDescription] ?? ''),
-          TextCellValue(row[DatabaseHelper.columnPaperExpiryDate] ?? ''),
-          TextCellValue((row[DatabaseHelper.columnCost] ?? '').toString()),
+          TextCellValue(row['paper_type'] ?? ''),
+          TextCellValue(row['provider_name'] ?? 'N/A'),
+          TextCellValue(row['reference_no'] ?? 'N/A'),
+          TextCellValue(row['description'] ?? ''),
+          TextCellValue(row['paper_expiry_date'] ?? ''),
+          TextCellValue((row['cost'] ?? '').toString()),
         ]);
 
-        double? paperCost = double.tryParse(
-          (row[DatabaseHelper.columnCost] ?? '0').toString(),
-        );
+        double? paperCost = double.tryParse((row['cost'] ?? '0').toString());
         if (paperCost != null) {
           paperGrandTotal += paperCost;
         }

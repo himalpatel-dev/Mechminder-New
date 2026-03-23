@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../service/database_helper.dart';
+import '../service/api_service.dart';
 import '../service/settings_provider.dart';
 import '../widgets/common_popup.dart';
 
@@ -15,7 +15,6 @@ class ExpensesTab extends StatefulWidget {
 }
 
 class _ExpensesTabState extends State<ExpensesTab> {
-  final dbHelper = DatabaseHelper.instance;
   List<Map<String, dynamic>> _expenses = [];
   bool _isLoading = true;
   List<String> _allCategories = [];
@@ -35,15 +34,16 @@ class _ExpensesTabState extends State<ExpensesTab> {
   }
 
   Future<void> _refreshExpenseList() async {
-    final data = await Future.wait([
-      dbHelper.queryExpensesForVehicle(widget.vehicleId),
-      dbHelper.queryDistinctExpenseCategories(),
-    ]);
-    final allExpenses = data[0] as List<Map<String, dynamic>>;
-    final allCategories = data[1] as List<String>;
+    final allExpenses = await ApiService.getExpensesForVehicle(
+      widget.vehicleId,
+    );
+    final Set<String> categories = {};
+    for (var e in allExpenses) {
+      if (e['category'] != null) categories.add(e['category']);
+    }
     setState(() {
-      _expenses = allExpenses;
-      _allCategories = allCategories;
+      _expenses = allExpenses.map((e) => Map<String, dynamic>.from(e)).toList();
+      _allCategories = categories.toList();
       _isLoading = false;
     });
   }
@@ -55,11 +55,10 @@ class _ExpensesTabState extends State<ExpensesTab> {
     bool isEditing = expense != null;
 
     if (isEditing) {
-      _dateController.text = expense[DatabaseHelper.columnServiceDate] ?? '';
-      _categoryController.text = expense[DatabaseHelper.columnCategory] ?? '';
-      _amountController.text = (expense[DatabaseHelper.columnTotalCost] ?? '')
-          .toString();
-      _notesController.text = expense[DatabaseHelper.columnNotes] ?? '';
+      _dateController.text = expense['service_date'] ?? '';
+      _categoryController.text = expense['category'] ?? '';
+      _amountController.text = (expense['total_cost'] ?? '').toString();
+      _notesController.text = expense['notes'] ?? '';
     } else {
       _dateController.text = DateTime.now().toIso8601String().split('T')[0];
       _categoryController.text = '';
@@ -208,7 +207,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  _showDeleteConfirmation(expense[DatabaseHelper.columnId]);
+                  _showDeleteConfirmation(expense['id']);
                 },
                 child: const Text(
                   'Delete',
@@ -273,17 +272,16 @@ class _ExpensesTabState extends State<ExpensesTab> {
   void _saveExpense(Map<String, dynamic>? expense) async {
     bool isEditing = expense != null;
     Map<String, dynamic> row = {
-      DatabaseHelper.columnVehicleId: widget.vehicleId,
-      DatabaseHelper.columnServiceDate: _dateController.text,
-      DatabaseHelper.columnCategory: _categoryController.text,
-      DatabaseHelper.columnTotalCost: double.tryParse(_amountController.text),
-      DatabaseHelper.columnNotes: _notesController.text,
+      'vehicle_id': widget.vehicleId,
+      'service_date': _dateController.text,
+      'category': _categoryController.text,
+      'total_cost': double.tryParse(_amountController.text),
+      'notes': _notesController.text,
     };
     if (isEditing) {
-      row[DatabaseHelper.columnId] = expense[DatabaseHelper.columnId];
-      await dbHelper.updateExpense(row);
+      await ApiService.updateExpense(expense['id'], row);
     } else {
-      await dbHelper.insertExpense(row);
+      await ApiService.createExpense(row);
     }
     _refreshExpenseList();
   }
@@ -307,7 +305,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
-              await dbHelper.deleteExpense(id);
+              await ApiService.deleteExpense(id);
               Navigator.of(ctx).pop();
               _refreshExpenseList();
             },
@@ -327,8 +325,10 @@ class _ExpensesTabState extends State<ExpensesTab> {
     final Map<String, List<Map<String, dynamic>>> groupedExpenses = {};
     if (_currentGrouping == ExpenseGrouping.byDate) {
       for (var expense in _expenses) {
-        final String monthYear = expense[DatabaseHelper.columnServiceDate]
-            .substring(0, 7);
+        final String monthYear = (expense['service_date'] as String).substring(
+          0,
+          7,
+        );
         if (groupedExpenses[monthYear] == null) {
           groupedExpenses[monthYear] = [];
         }
@@ -336,8 +336,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
       }
     } else {
       for (var expense in _expenses) {
-        final String category =
-            expense[DatabaseHelper.columnCategory] ?? 'Uncategorized';
+        final String category = expense['category'] ?? 'Uncategorized';
         if (groupedExpenses[category] == null) {
           groupedExpenses[category] = [];
         }
@@ -404,8 +403,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
                             double groupTotal = 0;
                             for (var e in expensesForGroup) {
                               groupTotal +=
-                                  (e[DatabaseHelper.columnTotalCost] ?? 0.0)
-                                      as double;
+                                  (e['total_cost'] as num?)?.toDouble() ?? 0.0;
                             }
 
                             return Column(
@@ -480,10 +478,9 @@ class _ExpensesTabState extends State<ExpensesTab> {
     bool isDark,
     Color primaryColor,
   ) {
-    final String? notes = expense[DatabaseHelper.columnNotes];
-    final String date = expense[DatabaseHelper.columnServiceDate];
-    final String category =
-        expense[DatabaseHelper.columnCategory] ?? 'Uncategorized';
+    final String? notes = expense['notes'];
+    final String date = expense['service_date'];
+    final String category = expense['category'] ?? 'Uncategorized';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -562,7 +559,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
                   ),
                 ),
                 Text(
-                  '${settings.currencySymbol}${expense[DatabaseHelper.columnTotalCost] ?? '0.00'}',
+                  '${settings.currencySymbol}${expense['total_cost'] ?? '0.00'}',
                   style: TextStyle(
                     color: Colors.green.shade600,
                     fontWeight: FontWeight.bold,

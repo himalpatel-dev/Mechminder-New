@@ -6,11 +6,13 @@ import 'package:photo_view/photo_view_gallery.dart';
 class FullScreenPhotoViewer extends StatefulWidget {
   final List<String> photoPaths;
   final int initialIndex;
+  final bool isNetwork;
 
   const FullScreenPhotoViewer({
     super.key,
     required this.photoPaths,
     required this.initialIndex,
+    this.isNetwork = false,
   });
 
   @override
@@ -44,8 +46,11 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
         pageController: _pageController,
         builder: (context, index) {
           final photoPath = widget.photoPaths[index];
+          final ImageProvider imageProvider = photoPath.startsWith('http')
+              ? NetworkImage(photoPath)
+              : FileImage(File(photoPath));
           return PhotoViewGalleryPageOptions(
-            imageProvider: FileImage(File(photoPath)),
+            imageProvider: imageProvider,
             minScale: PhotoViewComputedScale.contained,
             maxScale: PhotoViewComputedScale.covered * 2.0,
           );

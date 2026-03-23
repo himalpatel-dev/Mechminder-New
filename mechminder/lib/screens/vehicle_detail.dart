@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:mechminder/screens/vehicle_papers_screen.dart';
 import 'package:provider/provider.dart';
-import '../service/database_helper.dart'; // Make sure this path is correct
-import '../service/settings_provider.dart'; // Make sure this path is correct
+import '../service/api_service.dart';
+import '../service/settings_provider.dart';
 import 'overview_tab.dart'; // Make sure all your tabs are imported
 import 'service_history_tab.dart';
 import 'stats_tab.dart';
@@ -19,7 +19,6 @@ class VehicleDetailScreen extends StatefulWidget {
 
 class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     with TickerProviderStateMixin {
-  final dbHelper = DatabaseHelper.instance;
   late TabController _tabController;
 
   Map<String, dynamic>? _vehicle;
@@ -77,7 +76,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
               foregroundColor: Colors.black,
             ),
             onPressed: () async {
-              await dbHelper.deleteVehicle(widget.vehicleId);
+              await ApiService.deleteVehicle(widget.vehicleId);
               if (mounted) {
                 Navigator.of(ctx).pop(); // Close dialog
                 Navigator.of(context).pop(); // Go back to home screen
@@ -91,12 +90,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   }
 
   void _loadVehicleDetails() async {
-    final vehicleData = await dbHelper.queryVehicleById(widget.vehicleId);
+    final vehicleData = await ApiService.getVehicleById(widget.vehicleId);
     setState(() {
       _vehicle = vehicleData;
       if (vehicleData != null) {
-        _currentOdometer =
-            vehicleData[DatabaseHelper.columnCurrentOdometer] ?? 0;
+        _currentOdometer = vehicleData['current_odometer'] ?? 0;
       }
       _isLoading = false;
     });
@@ -121,8 +119,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
 
     String vehicleName = "Vehicle Detail";
     if (_vehicle != null) {
-      vehicleName =
-          '${_vehicle![DatabaseHelper.columnMake]} ${_vehicle![DatabaseHelper.columnModel]}';
+      vehicleName = '${_vehicle!['make']} ${_vehicle!['model']}';
     }
 
     return Scaffold(

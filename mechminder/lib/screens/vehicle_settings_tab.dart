@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../service/database_helper.dart';
+import '../service/api_service.dart';
 // We'll import the AddVehicleScreen but re-use it for "editing"
 import 'add_vehicle.dart';
 import 'vehicle_list.dart'; // To navigate home after delete
@@ -24,7 +24,7 @@ class VehicleSettingsTab extends StatelessWidget {
         return AlertDialog(
           title: const Text('Delete Vehicle?'),
           content: Text(
-            'Are you sure you want to delete "${vehicle[DatabaseHelper.columnMake]} ${vehicle[DatabaseHelper.columnModel]}"?\n\nThis action is permanent and will delete all associated services, expenses, and reminders.',
+            'Are you sure you want to delete "${vehicle['make']} ${vehicle['model']}"?\n\nThis action is permanent and will delete all associated services, expenses, and reminders.',
           ),
           actions: [
             TextButton(
@@ -37,11 +37,10 @@ class VehicleSettingsTab extends StatelessWidget {
                 foregroundColor: Colors.black,
               ),
               onPressed: () async {
-                final dbHelper = DatabaseHelper.instance;
-                await dbHelper.deleteVehicle(vehicle[DatabaseHelper.columnId]);
+                await ApiService.deleteVehicle(vehicle['id']);
 
                 // Pop the dialog
-                Navigator.of(ctx).pop();
+                if (context.mounted) Navigator.of(ctx).pop();
 
                 // Go all the way back to the home screen
                 if (context.mounted) {
@@ -67,7 +66,7 @@ class VehicleSettingsTab extends StatelessWidget {
       MaterialPageRoute(
         builder: (context) => AddVehicleScreen(
           // --- PASS THE VEHICLE ID ---
-          vehicleId: vehicle[DatabaseHelper.columnId],
+          vehicleId: vehicle['id'],
         ),
       ),
     ).then((_) {
@@ -112,14 +111,11 @@ class VehicleSettingsTab extends StatelessWidget {
                     );
 
                     // Create the service and run the report
-                    final excelService = ExcelService(
-                      dbHelper: DatabaseHelper.instance,
-                      settings: settings,
-                    );
+                    final excelService = ExcelService(settings: settings);
 
                     final result = await excelService.createExcelReport(
-                      vehicle[DatabaseHelper.columnId],
-                      '${vehicle[DatabaseHelper.columnMake]} ${vehicle[DatabaseHelper.columnModel]}',
+                      vehicle['id'],
+                      '${vehicle['make']} ${vehicle['model']}',
                     );
 
                     // Show the result

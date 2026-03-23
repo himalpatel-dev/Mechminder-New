@@ -6,8 +6,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:http/http.dart' as http;
 import '../service/database_helper.dart';
 import '../service/settings_provider.dart';
+import '../service/api_service.dart';
+import '../core/api_constants.dart';
 
 class DocumentsScreen extends StatefulWidget {
   const DocumentsScreen({super.key});
@@ -56,42 +59,81 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Future<void> _refreshDocumentList() async {
-    final allDocs = await dbHelper.queryAllGeneralDocuments();
-    final Map<String, List<Map<String, dynamic>>> grouped = {};
-    final List<String> groupTitles = [];
-    const String generalGroup = 'General Documents';
-
-    for (var doc in allDocs) {
-      String vehicleName;
-      if (doc[DatabaseHelper.columnVehicleId] == null) {
-        vehicleName = generalGroup;
-      } else {
-        vehicleName =
-            '${doc[DatabaseHelper.columnMake]} ${doc[DatabaseHelper.columnModel]}';
-      }
-
-      if (grouped[vehicleName] == null) {
-        grouped[vehicleName] = [];
-        groupTitles.add(vehicleName);
-      }
-      grouped[vehicleName]!.add(doc);
-    }
-
-    groupTitles.sort((a, b) {
-      if (a == generalGroup) return -1;
-      if (b == generalGroup) return 1;
-      return a.compareTo(b);
-    });
-
-    if (groupTitles.isNotEmpty && _expandedGroups.isEmpty) {
-      _expandedGroups.add(groupTitles.first);
-    }
-
     setState(() {
-      _groupedDocuments = grouped;
-      _groupTitles = groupTitles;
-      _isLoading = false;
+      _isLoading = true;
     });
+    try {
+      final allDocs = await ApiService.getDocuments();
+      final Map<String, List<Map<String, dynamic>>> grouped = {};
+      final List<String> groupTitles = [];
+      const String generalGroup = 'General Documents';
+
+      for (var doc in allDocs) {
+        final docMap = doc as Map<String, dynamic>;
+        String vehicleName;
+        if (docMap['vehicle_id'] == null) {
+          vehicleName = generalGroup;
+        } else {
+          final vehicle = docMap['Vehicle'];
+          if (vehicle != null) {
+            vehicleName = '${vehicle['make']} ${vehicle['model']}';
+          } else {
+            vehicleName = 'Unknown Vehicle';
+          }
+        }
+
+        if (grouped[vehicleName] == null) {
+          grouped[vehicleName] = [];
+          groupTitles.add(vehicleName);
+        }
+        grouped[vehicleName]!.add(docMap);
+      }
+
+      groupTitles.sort((a, b) {
+        if (a == generalGroup) return -1;
+        if (b == generalGroup) return 1;
+        return a.compareTo(b);
+      });
+
+      if (groupTitles.isNotEmpty && _expandedGroups.isEmpty) {
+        _expandedGroups.add(groupTitles.first);
+      }
+
+      setState(() {
+        _groupedDocuments = grouped;
+        _groupTitles = groupTitles;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading documents: $e')));
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<String> _downloadFile(String url, String fileName) async {
+    final tempDir = await getTemporaryDirectory();
+    final filePath = p.join(tempDir.path, fileName);
+    final file = File(filePath);
+
+    if (await file.exists()) return filePath;
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        await file.writeAsBytes(response.bodyBytes);
+        return filePath;
+      } else {
+        throw Exception('Failed to download file: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Error downloading file: $e');
+    }
   }
 
   Future<void> _pickFile(Function setDialogState) async {
@@ -108,7 +150,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   void _showAddDocumentDialog() async {
-    final allVehicles = await dbHelper.queryAllVehiclesWithNextReminder();
+    final allVehicles = await ApiService.getVehicles();
     if (!mounted) return;
 
     int? selectedVehicleId;
@@ -155,9 +197,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                           ),
                           ...allVehicles.map((vehicle) {
                             return DropdownMenuItem<int>(
-                              value: vehicle[DatabaseHelper.columnId],
+                              value: vehicle['id'],
                               child: Text(
-                                '${vehicle[DatabaseHelper.columnMake]} ${vehicle[DatabaseHelper.columnModel]}',
+                                '${vehicle['make']} ${vehicle['model']}',
                                 overflow: TextOverflow.ellipsis,
                               ),
                             );
@@ -323,40 +365,47 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Future<void> _saveDocument(int? vehicleId) async {
-    String? finalFilePath = _tempFilePath;
+    if (_tempFilePath == null) return;
 
-    if (_tempFilePath != null) {
-      final appDir = await getApplicationDocumentsDirectory();
-      // Ensure unique filename to prevent overwrites
-      final fileName =
-          '${DateTime.now().millisecondsSinceEpoch}_${p.basename(_tempFilePath!)}';
-      final String newPath = p.join(appDir.path, 'general_documents', fileName);
-      final newFile = File(newPath);
+    try {
+      setState(() => _isLoading = true);
 
-      await newFile.parent.create(recursive: true);
-      await File(_tempFilePath!).copy(newPath);
-      finalFilePath = newPath;
-    } else {
-      return;
+      final file = File(_tempFilePath!);
+      final bytes = await file.readAsBytes();
+      final name = p.basename(_tempFilePath!);
+
+      String finalDocType = _typeController.text == 'Other'
+          ? _customTypeController.text
+          : _typeController.text;
+
+      final fields = {
+        if (vehicleId != null) 'vehicle_id': vehicleId.toString(),
+        'doc_type': finalDocType,
+        'description': _descriptionController.text,
+      };
+
+      await ApiService.createDocument(fields, fileName: name, fileBytes: bytes);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Document uploaded successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading document: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
     }
-
-    String finalDocType;
-    if (_typeController.text == 'Other') {
-      finalDocType = _customTypeController.text;
-    } else {
-      finalDocType = _typeController.text;
-    }
-
-    Map<String, dynamic> row = {
-      DatabaseHelper.columnVehicleId: vehicleId,
-      DatabaseHelper.columnDocType: finalDocType,
-      DatabaseHelper.columnDescription: _descriptionController.text.isNotEmpty
-          ? _descriptionController.text
-          : null,
-      DatabaseHelper.columnFilePath: finalFilePath,
-    };
-
-    await dbHelper.insertGeneralDocument(row);
   }
 
   void _showDeleteConfirmation(int id) {
@@ -382,16 +431,17 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
               ),
             ),
             onPressed: () async {
-              final doc = await dbHelper.queryGeneralDocumentById(id);
-              if (doc != null && doc[DatabaseHelper.columnFilePath] != null) {
-                final file = File(doc[DatabaseHelper.columnFilePath]);
-                if (await file.exists()) {
-                  await file.delete();
+              try {
+                await ApiService.deleteDocument(id);
+                if (mounted) Navigator.of(ctx).pop();
+                _refreshDocumentList();
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error deleting document: $e')),
+                  );
                 }
               }
-              await dbHelper.deleteGeneralDocument(id);
-              if (mounted) Navigator.of(ctx).pop();
-              _refreshDocumentList();
             },
             child: const Text('Delete'),
           ),
@@ -644,11 +694,33 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           borderRadius: BorderRadius.circular(16),
           onTap: filePath != null
               ? () async {
-                  final result = await OpenFile.open(filePath);
-                  if (result.type != ResultType.done && mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error: ${result.message}')),
-                    );
+                  try {
+                    String localPath = filePath;
+                    if (filePath.startsWith('/') ||
+                        filePath.startsWith('http')) {
+                      final url = filePath.startsWith('http')
+                          ? filePath
+                          : '${ApiConstants.serverUrl}$filePath';
+                      final fileName = p.basename(filePath);
+
+                      setState(() => _isLoading = true);
+                      localPath = await _downloadFile(url, fileName);
+                      setState(() => _isLoading = false);
+                    }
+
+                    final result = await OpenFile.open(localPath);
+                    if (result.type != ResultType.done && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error: ${result.message}')),
+                      );
+                    }
+                  } catch (e) {
+                    setState(() => _isLoading = false);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error opening file: $e')),
+                      );
+                    }
                   }
                 }
               : null,
@@ -703,8 +775,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                     color: Colors.red.shade400,
                     size: 22,
                   ),
-                  onPressed: () =>
-                      _showDeleteConfirmation(doc[DatabaseHelper.columnId]),
+                  onPressed: () => _showDeleteConfirmation(doc['id']),
                 ),
               ],
             ),

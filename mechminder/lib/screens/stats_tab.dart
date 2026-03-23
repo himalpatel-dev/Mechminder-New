@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import '../service/database_helper.dart';
+import '../service/api_service.dart';
 import '../widgets/stats_pie_chart.dart';
 import '../service/settings_provider.dart';
 import '../service/excel_service.dart';
@@ -16,7 +16,6 @@ class StatsTab extends StatefulWidget {
 }
 
 class _StatsTabState extends State<StatsTab> {
-  final dbHelper = DatabaseHelper.instance;
   double _totalSpending = 0.0;
   List<Map<String, dynamic>> _spendingByCategory = [];
   bool _isLoading = true;
@@ -62,34 +61,104 @@ class _StatsTabState extends State<StatsTab> {
       _isLoading = true;
     });
 
-    String? startDate;
-    String? endDate;
+    try {
+      final results = await Future.wait([
+        ApiService.getExpensesForVehicle(widget.vehicleId),
+        ApiService.getServicesForVehicle(widget.vehicleId),
+        ApiService.getPapersForVehicle(widget.vehicleId),
+      ]);
 
-    if (_selectedMonth != null) {
-      final start = DateTime(_selectedMonth!.year, _selectedMonth!.month, 1);
-      final end = DateTime(_selectedMonth!.year, _selectedMonth!.month + 1, 0);
-      startDate = start.toIso8601String().split('T')[0];
-      endDate = end.toIso8601String().split('T')[0];
-    }
+      final List<dynamic> expenses = results[0];
+      final List<dynamic> services = results[1];
+      final List<dynamic> papers = results[2];
 
-    final total = await dbHelper.queryTotalSpending(
-      widget.vehicleId,
-      startDate: startDate,
-      endDate: endDate,
-    );
-    final byCategory = await dbHelper.querySpendingByCategory(
-      widget.vehicleId,
-      startDate: startDate,
-      endDate: endDate,
-    );
-    byCategory.sort((a, b) => (b['total'] as num).compareTo(a['total'] as num));
+      double totalSpending = 0.0;
+      Map<String, double> categoryTotals = {};
 
-    if (mounted) {
-      setState(() {
-        _totalSpending = total;
-        _spendingByCategory = byCategory;
-        _isLoading = false;
-      });
+      DateTime? filterStart;
+      DateTime? filterEnd;
+
+      if (_selectedMonth != null) {
+        filterStart = DateTime(_selectedMonth!.year, _selectedMonth!.month, 1);
+        filterEnd = DateTime(
+          _selectedMonth!.year,
+          _selectedMonth!.month + 1,
+          0,
+        );
+      }
+
+      // 1. Process Expenses
+      for (var e in expenses) {
+        final String? dateStr =
+            e['service_date'] ?? e['expense_date'] ?? e['created_at'];
+        if (dateStr == null) continue;
+        final DateTime date = DateTime.parse(dateStr);
+
+        if (_selectedMonth != null) {
+          if (date.isBefore(filterStart!) || date.isAfter(filterEnd!)) continue;
+        }
+
+        final double cost = (e['total_cost'] ?? 0.0).toDouble();
+        totalSpending += cost;
+
+        final String category = e['category'] ?? 'General';
+        categoryTotals[category] = (categoryTotals[category] ?? 0.0) + cost;
+      }
+
+      // 2. Process Services
+      for (var s in services) {
+        final String? dateStr = s['service_date'] ?? s['created_at'];
+        if (dateStr == null) continue;
+        final DateTime date = DateTime.parse(dateStr);
+
+        if (_selectedMonth != null) {
+          if (date.isBefore(filterStart!) || date.isAfter(filterEnd!)) continue;
+        }
+
+        final double cost = (s['total_cost'] ?? 0.0).toDouble();
+        totalSpending += cost;
+
+        // Categorize all services as "Maintenance" for stats purposes
+        const String category = 'Maintenance';
+        categoryTotals[category] = (categoryTotals[category] ?? 0.0) + cost;
+      }
+
+      // 3. Process Papers (Essential Costs)
+      for (var p in papers) {
+        final String? dateStr = p['created_at'];
+        if (dateStr == null) continue;
+        final DateTime date = DateTime.parse(dateStr);
+
+        if (_selectedMonth != null) {
+          if (date.isBefore(filterStart!) || date.isAfter(filterEnd!)) continue;
+        }
+
+        final double cost = (p['cost'] ?? 0.0).toDouble();
+        totalSpending += cost;
+
+        const String category = 'Essential Costs';
+        categoryTotals[category] = (categoryTotals[category] ?? 0.0) + cost;
+      }
+
+      final byCategory = categoryTotals.entries.map((entry) {
+        return {'category': entry.key, 'total': entry.value};
+      }).toList();
+
+      byCategory.sort(
+        (a, b) => (b['total'] as num).compareTo(a['total'] as num),
+      );
+
+      if (mounted) {
+        setState(() {
+          _totalSpending = totalSpending;
+          _spendingByCategory = byCategory;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -263,15 +332,12 @@ class _StatsTabState extends State<StatsTab> {
     scaffoldMessenger.showSnackBar(
       const SnackBar(content: Text('Creating report...')),
     );
-    final vehicle = await dbHelper.queryVehicleById(widget.vehicleId);
+    final vehicle = await ApiService.getVehicleById(widget.vehicleId);
     final vehicleName = (vehicle != null)
-        ? '${vehicle[DatabaseHelper.columnMake]} ${vehicle[DatabaseHelper.columnModel]}'
+        ? '${vehicle['make']} ${vehicle['model']}'
         : 'Vehicle_Report';
 
-    final excelService = ExcelService(
-      dbHelper: DatabaseHelper.instance,
-      settings: settings,
-    );
+    final excelService = ExcelService(settings: settings);
 
     final result = await excelService.createExcelReport(
       widget.vehicleId,
@@ -447,7 +513,7 @@ class _StatsTabState extends State<StatsTab> {
                       itemCount: _spendingByCategory.length,
                       itemBuilder: (context, index) {
                         final item = _spendingByCategory[index];
-                        String category = item[DatabaseHelper.columnCategory];
+                        String category = item['category'];
                         double total = (item['total'] as num).toDouble();
 
                         return ListTile(

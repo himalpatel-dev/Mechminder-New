@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../service/database_helper.dart'; // Make sure this path is correct
-import '../service/settings_provider.dart'; // Make sure this path is correct
+import '../service/api_service.dart';
+import '../service/settings_provider.dart';
 
 class UpcomingRemindersTab extends StatefulWidget {
   final int vehicleId;
@@ -13,7 +13,6 @@ class UpcomingRemindersTab extends StatefulWidget {
 }
 
 class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
-  final dbHelper = DatabaseHelper.instance;
   bool _isLoading = true;
 
   List<Map<String, dynamic>> _overdueReminders = [];
@@ -31,40 +30,56 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
   }
 
   Future<void> _refreshReminderList() async {
-    final allReminders = await dbHelper.queryRemindersForVehicle(
-      widget.vehicleId,
-    );
+    setState(() => _isLoading = true);
+    try {
+      final allReminders = await ApiService.getRemindersForVehicle(
+        widget.vehicleId,
+      );
 
-    final List<Map<String, dynamic>> overdue = [];
-    final List<Map<String, dynamic>> comingSoon = [];
-    final String today = DateTime.now().toIso8601String().split('T')[0];
+      final List<Map<String, dynamic>> overdue = [];
+      final List<Map<String, dynamic>> comingSoon = [];
+      final String today = DateTime.now().toIso8601String().split('T')[0];
 
-    for (var reminder in allReminders) {
-      final String? dueDate = reminder[DatabaseHelper.columnDueDate];
-      // Check for date-based reminders
-      if (dueDate != null && dueDate.compareTo(today) < 0) {
-        overdue.add(reminder);
-      } else {
-        // All others (future date or odo-only) are "coming soon"
-        comingSoon.add(reminder);
+      for (var reminder in allReminders) {
+        final Map<String, dynamic> r = Map<String, dynamic>.from(reminder);
+        final String? dueDate = r['due_date'];
+
+        bool isDateOverdue = false;
+        bool isOdoOverdue = false;
+
+        if (dueDate != null && dueDate.compareTo(today) < 0) {
+          isDateOverdue = true;
+        }
+        // In this tab we don't have current odo easily available without fetching vehicle
+        // But we can fetch it or just use date for overdue status in this view
+        // For simplicity let's stick to date or fetch current odo
+
+        if (isDateOverdue || isOdoOverdue) {
+          overdue.add(r);
+        } else {
+          comingSoon.add(r);
+        }
+      }
+
+      setState(() {
+        _overdueReminders = overdue;
+        _comingSoonReminders = comingSoon;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
-
-    setState(() {
-      _overdueReminders = overdue;
-      _comingSoonReminders = comingSoon;
-      _isLoading = false;
-    });
   }
 
   void _showSnoozeDialog(
     Map<String, dynamic> reminder,
     SettingsProvider settings,
   ) {
-    // (This function is unchanged)
-    final int reminderId = reminder[DatabaseHelper.columnId];
-    String? currentDueDate = reminder[DatabaseHelper.columnDueDate];
-    int? currentDueOdo = reminder[DatabaseHelper.columnDueOdometer];
+    final int reminderId = reminder['id'];
+    String? currentDueDate = reminder['due_date'];
+    int? currentDueOdo = reminder['due_odometer'];
 
     final TextEditingController daysController = TextEditingController(
       text: '7',
@@ -120,10 +135,10 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
                 newDueOdometer = currentDueOdo + odoToAdd;
               }
 
-              await dbHelper.updateReminder(
+              await ApiService.updateReminder(
                 reminderId,
-                newDueDate,
-                newDueOdometer,
+                dueDate: newDueDate,
+                dueOdometer: newDueOdometer,
               );
 
               if (mounted) {
@@ -138,9 +153,7 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
     );
   }
 
-  // --- NEW: FUNCTION TO ADD A MANUAL REMINDER ---
   void _showAddManualReminderDialog(SettingsProvider settings) {
-    // Clear old text
     _manualNameController.clear();
     _manualDateController.clear();
     _manualOdoController.clear();
@@ -227,20 +240,18 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
                 return;
               }
 
-              // Save to DB (templateId is null)
-              await dbHelper.insertReminder({
-                DatabaseHelper.columnVehicleId: widget.vehicleId,
-                DatabaseHelper.columnTemplateId: null,
-                DatabaseHelper.columnDueDate: date,
-                DatabaseHelper.columnDueOdometer: odo,
-                DatabaseHelper.columnNotes:
-                    name, // We use the NOTES column for the name
+              await ApiService.createReminder({
+                'vehicle_id': widget.vehicleId,
+                'due_date': date,
+                'due_odometer': odo,
+                'notes': name,
+                'status': 'pending',
               });
 
               if (mounted) {
-                Navigator.of(ctx).pop(); // Close the dialog
+                Navigator.of(ctx).pop();
               }
-              _refreshReminderList(); // Refresh the list
+              _refreshReminderList();
             },
             child: const Text('Save Reminder'),
           ),
@@ -248,7 +259,6 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
       ),
     );
   }
-  // --- END OF NEW FUNCTION ---
 
   @override
   Widget build(BuildContext context) {
@@ -267,7 +277,6 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
           : ListView(
               padding: const EdgeInsets.only(bottom: 60),
               children: [
-                // --- OVERDUE SECTION ---
                 if (_overdueReminders.isNotEmpty) ...[
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -296,7 +305,6 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
                   const Divider(height: 20),
                 ],
 
-                // --- COMING SOON SECTION ---
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                   child: Text(
@@ -331,33 +339,26 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
                       ),
               ],
             ),
-
-      // --- NEW: FLOATING ACTION BUTTON ---
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           _showAddManualReminderDialog(settings);
         },
-        child: const Icon(Icons.add),
+        backgroundColor: settings.primaryColor,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
-      // --- END OF NEW BUTTON ---
     );
   }
 
-  // --- UPDATED: HELPER WIDGET ---
   Widget _buildReminderTile(
     Map<String, dynamic> reminder,
     SettingsProvider settings, {
     bool isOverdue = false,
   }) {
-    String dueDate = reminder[DatabaseHelper.columnDueDate] ?? 'N/A';
-    String dueOdo =
-        reminder[DatabaseHelper.columnDueOdometer]?.toString() ?? 'N/A';
+    String dueDate = reminder['due_date'] ?? 'N/A';
+    String dueOdo = reminder['due_odometer']?.toString() ?? 'N/A';
 
-    // --- FIX: Use template_name first, then fall back to notes ---
     String title =
-        reminder['template_name'] ??
-        reminder[DatabaseHelper.columnNotes] ??
-        'Reminder';
+        reminder['ServiceTemplate']?['name'] ?? reminder['notes'] ?? 'Reminder';
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -366,10 +367,7 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
           Icons.notifications_active,
           color: isOverdue ? Colors.red[700] : Colors.orange,
         ),
-        title: Text(
-          title, // Use the new title
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(
           'Due Date: $dueDate\nDue Odometer: $dueOdo ${settings.unitType}',
         ),
@@ -377,7 +375,6 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // "Snooze" Button
             IconButton(
               icon: const Icon(Icons.snooze, color: Colors.blue),
               tooltip: 'Snooze Reminder',
@@ -385,13 +382,12 @@ class _UpcomingRemindersTabState extends State<UpcomingRemindersTab> {
                 _showSnoozeDialog(reminder, settings);
               },
             ),
-            // "Complete" Button
             IconButton(
               icon: const Icon(Icons.check_circle_outline, color: Colors.green),
               tooltip: 'Mark as Complete',
               onPressed: () async {
-                int id = reminder[DatabaseHelper.columnId];
-                await dbHelper.deleteReminder(id);
+                int id = reminder['id'];
+                await ApiService.updateReminder(id, status: 'completed');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
