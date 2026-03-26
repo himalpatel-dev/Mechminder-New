@@ -108,3 +108,6 @@ app.*.symbols
 !**/ios/Runner/Assets.xcassets/
 !**/android/app/src/main/res/
 !**/android/app/src/main/AndroidManifest.xml
+
+
+backend/config/*.json
