@@ -7,7 +7,7 @@ import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:http/http.dart' as http;
-import '../service/database_helper.dart';
+
 import '../service/settings_provider.dart';
 import '../service/api_service.dart';
 import '../core/api_constants.dart';
@@ -20,8 +20,8 @@ class DocumentsScreen extends StatefulWidget {
 }
 
 class _DocumentsScreenState extends State<DocumentsScreen> {
-  final dbHelper = DatabaseHelper.instance;
   bool _isLoading = true;
+
 
   Map<String, List<Map<String, dynamic>>> _groupedDocuments = {};
   List<String> _groupTitles = [];
@@ -668,9 +668,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     bool isDark,
     Color primaryColor,
   ) {
-    final String type = doc[DatabaseHelper.columnDocType] ?? 'Document';
-    final String? description = doc[DatabaseHelper.columnDescription];
-    final String? filePath = doc[DatabaseHelper.columnFilePath];
+    final String type = doc['doc_type'] ?? 'Document';
+    final String? description = doc['description'];
+    final String? filePath = doc['file_path'];
 
     return Container(
       margin: const EdgeInsets.only(

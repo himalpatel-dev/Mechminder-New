@@ -6,7 +6,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'service/settings_provider.dart';
 import 'service/subscription_provider.dart';
 import 'service/user_provider.dart';
+import 'service/vehicle_provider.dart';
 import 'service/vendor_provider.dart';
+
 import 'service/template_provider.dart';
 
 // --- REMOVED ALL OTHER IMPORTS (like workmanager, database, etc.) ---
@@ -39,7 +41,9 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider(create: (context) => SettingsProvider()),
         ChangeNotifierProvider(create: (context) => UserProvider()),
+        ChangeNotifierProvider(create: (context) => VehicleProvider()),
         ChangeNotifierProvider(create: (context) => VendorProvider()),
+
         ChangeNotifierProvider(create: (context) => TemplateProvider()),
         ChangeNotifierProxyProvider<UserProvider, SubscriptionProvider>(
           create: (context) => SubscriptionProvider(),

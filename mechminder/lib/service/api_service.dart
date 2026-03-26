@@ -507,4 +507,23 @@ class ApiService {
       },
     );
   }
+
+  // --- Bulk Sync ---
+  static Future<Map<String, dynamic>?> fetchFullAppState() async {
+    final res = await ApiClient.request(
+      method: 'GET',
+      path: ApiConstants.restoreData,
+    );
+    if (res.statusCode == 200) return json.decode(res.body);
+    return null;
+  }
+
+  static Future<void> pushFullBackup(Map<String, dynamic> data) async {
+    await ApiClient.request(
+      method: 'POST',
+      path: ApiConstants.backupData,
+      body: data,
+    );
+  }
 }
+

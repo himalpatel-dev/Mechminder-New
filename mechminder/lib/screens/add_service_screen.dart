@@ -7,7 +7,9 @@ import '../service/notification_service.dart';
 import '../core/api_constants.dart';
 import '../widgets/full_screen_photo_viewer.dart';
 import 'package:provider/provider.dart';
-import '../service/settings_provider.dart'; // Make sure this path is correct
+import '../service/settings_provider.dart'; 
+import '../service/vehicle_provider.dart';
+
 
 // --- (UPDATED HELPER CLASS) ---
 class ServiceItem {
@@ -235,134 +237,8 @@ class _AddServiceScreenState extends State<AddServiceScreen> {
   }
 
   // --- SAVE FUNCTION (unchanged) ---
-  // Future<void> _saveService() async {
-  //   print(
-  //     "[DEBUG] Save button pressed. Service Name is: '${_serviceNameController.text}'",
-  //   );
-  //   if (_formKey.currentState!.validate()) {
-  //     _updateTotalCost(); // Recalculate total
 
-  //     Map<String, dynamic> serviceRow = {
-  //       DatabaseHelper.columnVehicleId: widget.vehicleId,
-  //       DatabaseHelper.columnServiceName: _serviceNameController.text,
-  //       DatabaseHelper.columnServiceDate: _dateController.text,
-  //       DatabaseHelper.columnOdometer: int.tryParse(_odometerController.text),
-  //       DatabaseHelper.columnTotalCost: double.tryParse(
-  //         _totalCostController.text,
-  //       ),
-  //       DatabaseHelper.columnVendorId: _selectedVendorId,
-  //       DatabaseHelper.columnNotes: _notesController.text,
-  //     };
-  //     int serviceId;
 
-  //     if (_isEditMode) {
-  //       serviceId = widget.serviceId!;
-  //       serviceRow[DatabaseHelper.columnId] = serviceId;
-  //       await dbHelper.updateService(serviceRow);
-  //     } else {
-  //       serviceId = await dbHelper.insertService(serviceRow);
-  //     }
-
-  //     // --- 2. DELETE AND RE-SAVE ALL ITEMS ---
-  //     await dbHelper.deleteAllServiceItemsForService(serviceId);
-  //     List<int> templateIdsUsed =
-  //         []; // This is the list of templates in *this* service
-
-  //     for (var item in _serviceItems) {
-  //       String name = item.nameController.text;
-  //       if (name.isNotEmpty) {
-  //         double qty = double.tryParse(item.qtyController.text) ?? 1.0;
-  //         double cost = double.tryParse(item.costController.text) ?? 0.0;
-  //         Map<String, dynamic> itemRow = {
-  //           DatabaseHelper.columnServiceId: serviceId,
-  //           DatabaseHelper.columnName: name,
-  //           DatabaseHelper.columnQty: qty,
-  //           DatabaseHelper.columnUnitCost: cost,
-  //           DatabaseHelper.columnTotalCost: (qty * cost),
-  //           DatabaseHelper.columnTemplateId: item.templateId,
-  //         };
-  //         await dbHelper.insertServiceItem(itemRow);
-  //         if (item.templateId != null) {
-  //           templateIdsUsed.add(item.templateId!);
-  //         }
-  //       }
-  //     }
-
-  //     int newOdometer = int.tryParse(_odometerController.text) ?? 0;
-  //     if (newOdometer > widget.currentOdometer) {
-  //       await dbHelper.updateVehicleOdometer(widget.vehicleId, newOdometer);
-  //     }
-
-  //     // --- 3. "AUTO-COMPLETE" AND CREATE REMINDERS (THE CORRECT LOGIC) ---
-  //     // This new logic only touches reminders for templates
-  //     // that are part of this service.
-
-  //     if (templateIdsUsed.isNotEmpty) {
-  //       print(
-  //         "Auto-completing and creating ${templateIdsUsed.length} new reminders...",
-  //       );
-
-  //       for (int templateId in templateIdsUsed.toSet()) {
-  //         // 1. "AUTO-COMPLETE": Delete any old, pending reminder for this template.
-  //         print(
-  //           "  > Deleting old reminder for template $templateId (if one exists)...",
-  //         );
-  //         await dbHelper.deleteRemindersByTemplate(
-  //           widget.vehicleId,
-  //           templateId,
-  //         );
-
-  //         // 2. "CREATE NEW": Add the new reminder with the calculated due date.
-  //         final template = await dbHelper.queryTemplateById(templateId);
-  //         if (template != null) {
-  //           int? intervalDays = template[DatabaseHelper.columnIntervalDays];
-  //           int? intervalKm = template[DatabaseHelper.columnIntervalKm];
-  //           String? nextDueDate;
-  //           int? nextDueOdometer;
-
-  //           if (intervalDays != null && intervalDays >= 0) {
-  //             // Use >=
-  //             DateTime serviceDate = DateTime.parse(_dateController.text);
-  //             nextDueDate = serviceDate
-  //                 .add(Duration(days: intervalDays))
-  //                 .toIso8601String()
-  //                 .split('T')[0];
-  //           }
-  //           if (intervalKm != null && intervalKm > 0) {
-  //             nextDueOdometer = newOdometer + intervalKm;
-  //           }
-  //           if (nextDueDate != null || nextDueOdometer != null) {
-  //             print("  > Creating new reminder for template $templateId");
-
-  //             await dbHelper.insertReminder({
-  //               DatabaseHelper.columnVehicleId: widget.vehicleId,
-  //               DatabaseHelper.columnTemplateId: templateId,
-  //               DatabaseHelper.columnDueDate: nextDueDate,
-  //               DatabaseHelper.columnDueOdometer: nextDueOdometer,
-  //             });
-
-  //             // We are not scheduling notifications, the background task will.
-  //           }
-  //         }
-  //       }
-  //     }
-  //     print("--- REMINDER SYNC COMPLETE ---");
-  //     // --- END OF NEW LOGIC ---
-
-  //     // ... (Save Photos logic) ...
-  //     for (var imageFile in _newImageFiles) {
-  //       await dbHelper.insertPhoto({
-  //         DatabaseHelper.columnParentId: serviceId,
-  //         DatabaseHelper.columnParentType: 'service',
-  //         DatabaseHelper.columnUri: imageFile.path,
-  //       });
-  //     }
-
-  //     if (mounted) {
-  //       Navigator.of(context).pop();
-  //     }
-  //   }
-  // }
 
   Future<void> _saveService() async {
     if (_formKey.currentState!.validate()) {
@@ -458,9 +334,12 @@ class _AddServiceScreenState extends State<AddServiceScreen> {
       }
 
       if (mounted) {
+        final vehicleProvider = Provider.of<VehicleProvider>(context, listen: false);
+        await vehicleProvider.syncAllData(); // Refresh global cloud state
+        
         final settings = Provider.of<SettingsProvider>(context, listen: false);
         await NotificationService().checkAndShowOdometerReminders(
-          vehicleId: widget.vehicleId,
+          reminders: vehicleProvider.reminders.where((r) => r['vehicle_id'] == widget.vehicleId).toList(),
           currentOdometer: newOdometer,
           unitType: settings.unitType,
         );
@@ -468,6 +347,7 @@ class _AddServiceScreenState extends State<AddServiceScreen> {
       }
     }
   }
+
 
   // --- MAIN BUILD METHOD (unchanged) ---
   @override

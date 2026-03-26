@@ -46,4 +46,9 @@ class ApiConstants {
   static const String documents = '/documents';
   static const String vehicleDocuments = '/vehicles/{vehicleId}/documents';
   static const String documentDetails = '/documents/{id}';
+  
+  // Backup & Restore
+  static const String backupData = '/backup';
+  static const String restoreData = '/restore';
 }
+

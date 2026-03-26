@@ -1,7 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
-import '../service/database_helper.dart'; // Add this line
+
 
 // --- THIS IS THE NEW CHANNEL WE WILL CREATE ---
 const AndroidNotificationChannel channel = AndroidNotificationChannel(
@@ -127,17 +127,15 @@ class NotificationService {
   /// Centralized method to check all pending reminders for a vehicle
   /// and trigger notifications if they are due based on the given odometer.
   Future<void> checkAndShowOdometerReminders({
-    required int vehicleId,
+    required List<dynamic> reminders,
     required int currentOdometer,
     required String unitType,
   }) async {
-    final dbHelper = DatabaseHelper.instance;
-    final allReminders = await dbHelper.queryRemindersForVehicle(vehicleId);
     final String today = DateTime.now().toIso8601String().split('T')[0];
 
-    for (var reminder in allReminders) {
-      final dynamic dueOdoRaw = reminder[DatabaseHelper.columnDueOdometer];
-      final String? dueDate = reminder[DatabaseHelper.columnDueDate];
+    for (var reminder in reminders) {
+      final dynamic dueOdoRaw = reminder['due_odometer'];
+      final String? dueDate = reminder['due_date'];
       final int? dueOdo = dueOdoRaw is int
           ? dueOdoRaw
           : int.tryParse(dueOdoRaw?.toString() ?? '');
@@ -146,7 +144,7 @@ class NotificationService {
       String reason = "";
 
       // Odometer Check
-      if (dueOdo != null && currentOdometer >= dueOdo) {
+      if (dueOdo != null && dueOdo > 0 && currentOdometer >= dueOdo) {
         shouldNotify = true;
         reason = "Reached $dueOdo $unitType";
       }
@@ -157,11 +155,11 @@ class NotificationService {
         reason = "Due today ($dueDate)";
       }
 
-      if (shouldNotify) {
-        final int reminderId = reminder[DatabaseHelper.columnId];
+      if (shouldNotify && reminder['status'] == 'pending') {
+        final int reminderId = reminder['id'];
         final String templateName =
             reminder['template_name'] ??
-            reminder[DatabaseHelper.columnNotes] ??
+            reminder['notes'] ??
             'Service';
 
         await showImmediateReminder(
@@ -173,3 +171,4 @@ class NotificationService {
     }
   }
 }
+

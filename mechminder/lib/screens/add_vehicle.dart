@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../service/api_service.dart';
-import '../service/database_helper.dart'; // Keeping for potential local fallbacks if needed, but primarily api
 import 'package:provider/provider.dart';
 import '../service/settings_provider.dart';
 import '../widgets/full_screen_photo_viewer.dart';
 import '../service/notification_service.dart';
-import '../core/api_constants.dart'; // Added for serverUrl
+import '../service/vehicle_provider.dart';
+import '../core/api_constants.dart';
+
 
 class AddVehicleScreen extends StatefulWidget {
   final int? vehicleId;
@@ -20,7 +21,6 @@ class AddVehicleScreen extends StatefulWidget {
 }
 
 class _AddVehicleScreenState extends State<AddVehicleScreen> {
-  final dbHelper = DatabaseHelper.instance;
   final _formKey = GlobalKey<FormState>();
 
   // --- CONTROLLERS ---
@@ -139,6 +139,8 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
         };
 
         dynamic result;
+        final vehicleProvider = Provider.of<VehicleProvider>(context, listen: false);
+
         if (_isEditMode) {
           final int vehicleId = widget.vehicleId!;
           String? firstPhotoName;
@@ -156,9 +158,8 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
             photoName: firstPhotoName,
             photoBytes: firstPhotoBytes,
           );
-          result = {'id': vehicleId}; // Set result for notification part
+          result = {'id': vehicleId}; 
         } else {
-          // Support single photo upload for now as per current ApiService capabilities
           List<int>? photoBytes;
           String? photoName;
           if (_newImageFiles.isNotEmpty) {
@@ -174,23 +175,22 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
         }
 
         if (result != null && mounted) {
-          final int vehicleId = result['id'];
-          final int currentOdo = int.tryParse(_odometerController.text) ?? 0;
-          final settings = Provider.of<SettingsProvider>(
-            context,
-            listen: false,
-          );
+          // Refresh global state
+          await vehicleProvider.syncAllData();
 
-          // We trigger local notification but note it expects SQLite data
-          // This might yield inconsistent results if SQLite isn't synced
+          final int currentOdo = int.tryParse(_odometerController.text) ?? 0;
+          final settings = Provider.of<SettingsProvider>(context, listen: false);
+
+          // Trigger local notification based on new cloud state
           await NotificationService().checkAndShowOdometerReminders(
-            vehicleId: vehicleId,
+            reminders: vehicleProvider.reminders.where((r) => r['vehicle_id'] == result['id']).toList(),
             currentOdometer: currentOdo,
             unitType: settings.unitType,
           );
 
           Navigator.of(context).pop();
         }
+
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(

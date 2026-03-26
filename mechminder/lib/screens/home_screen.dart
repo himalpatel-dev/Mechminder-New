@@ -9,6 +9,8 @@ import 'master_screen.dart';
 import 'app_settings_screen.dart';
 import 'add_vehicle.dart';
 import '../service/notification_service.dart';
+import '../service/vehicle_provider.dart';
+
 
 // --- NEW: Define the structure for the navigation items ---
 class BottomNavItem {
@@ -434,12 +436,14 @@ class _HomeScreenState extends State<HomeScreen>
                             builder: (context) => const AddVehicleScreen(),
                           ),
                         ).then((_) {
-                          _vehicleListKey.currentState?.refreshVehicleList();
+                           // Sync all data from cloud to refresh the list and status
+                           Provider.of<VehicleProvider>(context, listen: false).syncAllData();
                         });
                       },
                       child: const Icon(Icons.add),
                     ),
                   ),
+
                 ],
               )
             : null,

@@ -6,62 +6,77 @@ import '../screens/onboarding_screen.dart';
 import '../screens/home_screen.dart'; // Import your main home screen
 import '../screens/paywall_screen.dart';
 import '../service/subscription_provider.dart';
-import '../service/user_provider.dart';
+import '../service/vehicle_provider.dart';
 import 'package:provider/provider.dart';
 
+
 // --- ADD ALL THE IMPORTS FROM MAIN.DART ---
-import '../service/database_helper.dart';
+import '../service/auth_service.dart';
 import '../service/notification_service.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:firebase_core/firebase_core.dart'; // Added for Firebase.initializeApp
+import '../service/api_service.dart'; // Added for ApiService
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
-    final dbHelper = DatabaseHelper.instance;
-    await dbHelper.database;
-    await NotificationService().initialize();
+    // 1. Initialize Essential Services (No SQLite needed)
+    try {
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp();
+      }
+      await NotificationService().initialize();
+    } catch (e) {
+      if (kDebugMode) print("!!! Background Init Error: $e");
+      return Future.value(false);
+    }
+
+    // 2. Fetch Data from Cloud (Bulk Sync)
+    final appData = await ApiService.fetchFullAppState();
+    if (appData == null) {
+      if (kDebugMode) print("!!! Background Sync Failed: No data fetched");
+      return Future.value(false);
+    }
 
     final String today = DateTime.now().toIso8601String().split('T')[0];
     if (kDebugMode) {
-      print("Checking for reminders and papers due on: $today");
+      print("Background: Checking for reminders/papers due on: $today");
     }
 
+    final List<dynamic> allReminders = appData['reminders'] ?? [];
+    final List<dynamic> allVehicles = appData['vehicles'] ?? [];
+    final List<dynamic> allPapers = appData['vehicle_papers'] ?? [];
+
     // --- 1. Check for Service Reminders ---
-    final allReminders = await dbHelper.queryAllPendingRemindersWithVehicle();
-
     for (final reminder in allReminders) {
-      final int reminderId = reminder[DatabaseHelper.columnId];
-      bool isDue = false;
+      if (reminder['status'] != 'pending') continue;
 
-      // Check if date is due
-      final String? dueDate = reminder[DatabaseHelper.columnDueDate];
+      bool isDue = false;
+      final String? dueDate = reminder['due_date'];
       if (dueDate != null && dueDate.compareTo(today) == 0) {
-        // Only on the exact day
         isDue = true;
       }
 
-      // Check if odometer is due
-      final int? dueOdo = reminder[DatabaseHelper.columnDueOdometer];
-      final int currentOdo =
-          reminder[DatabaseHelper.columnCurrentOdometer] ?? 0;
-      if (dueOdo != null && currentOdo >= dueOdo) {
+      // Note: Odometer-based reminders check in the background
+      // requires the *latest* odometer which we just fetched.
+      final int? dueOdo = reminder['due_odometer'];
+      final vehicle = allVehicles.firstWhere(
+        (v) => v['id'] == reminder['vehicle_id'],
+        orElse: () => null,
+      );
+      final int currentOdo = vehicle?['current_odometer'] ?? 0;
+
+      if (dueOdo != null && dueOdo > 0 && currentOdo >= dueOdo) {
         isDue = true;
       }
 
       if (isDue) {
+        final int reminderId = reminder['id'];
         final String appName = inputData?['appName'] ?? 'MechMinder';
         final serviceName =
-            reminder['template_name'] ??
-            reminder[DatabaseHelper.columnNotes] ??
-            'Service';
+            reminder['template_name'] ?? reminder['notes'] ?? 'Service';
         final body = 'Your "$serviceName" service is due!';
-
-        if (kDebugMode) {
-          print(
-            "  > Reminder $serviceName (ID: $reminderId) is DUE. Sending notification.",
-          );
-        }
-
+        
         await NotificationService().showImmediateReminder(
           id: reminderId,
           title: appName,
@@ -70,41 +85,37 @@ void callbackDispatcher() {
       }
     }
 
-    // --- 2. NEW: Check for Expiring Papers ---
-    final expiringPapers = await dbHelper.queryVehiclePapersExpiringOn(today);
-    if (kDebugMode) {
-      print("Found ${expiringPapers.length} papers expiring today.");
-    }
+    // --- 2. Check for Expiring Papers ---
+    for (final paper in allPapers) {
+      final String? expiryDate = paper['paper_expiry_date'];
+      if (expiryDate != null && expiryDate == today) {
+        final vehicle = allVehicles.firstWhere(
+          (v) => v['id'] == paper['vehicle_id'],
+          orElse: () => null,
+        );
+        final String vehicleName =
+            vehicle != null
+                ? '${vehicle['make']} ${vehicle['model']}'
+                : 'Vehicle';
+        final String paperType = paper['paper_type'] ?? 'Paper';
+        final String body = 'Your $paperType for $vehicleName expires today!';
 
-    for (final paper in expiringPapers) {
-      final String vehicleName =
-          '${paper[DatabaseHelper.columnMake]} ${paper[DatabaseHelper.columnModel]}';
-      final String paperType = paper[DatabaseHelper.columnPaperType] ?? 'Paper';
-      final String body = 'Your $paperType for $vehicleName expires today!';
-
-      if (kDebugMode) {
-        print(
-          "  > Paper $paperType (ID: ${paper[DatabaseHelper.columnId]}) is EXPIRING. Sending notification.",
+        int notificationId = 100000 + (paper['id'] as int);
+        await NotificationService().showImmediateReminder(
+          id: notificationId,
+          title: 'Vehicle Paper Expiring',
+          body: body,
         );
       }
-
-      // Use a high-level unique ID for paper notifications
-      int notificationId = 100000 + (paper[DatabaseHelper.columnId] as int);
-
-      await NotificationService().showImmediateReminder(
-        id: notificationId,
-        title: 'Vehicle Paper Expiring',
-        body: body,
-      );
     }
-    // --- END NEW ---
 
     if (kDebugMode) {
-      print("--- Background Task Complete ---");
+      print("--- Background Sync Task Complete ---");
     }
     return Future.value(true);
   });
 }
+
 // --- END OF BACKGROUND TASK ---
 
 class SplashScreen extends StatefulWidget {
@@ -123,6 +134,9 @@ class _SplashScreenState extends State<SplashScreen> {
     _initializeAndNavigate();
   }
 
+  String _statusMessage = "";
+
+
   void _initializeAndNavigate() async {
     // 1. Only run setup once to prevent double-calls on theme rebuilds
     if (_setupTriggered) return;
@@ -134,18 +148,22 @@ class _SplashScreenState extends State<SplashScreen> {
     // 3. Setup Logic
     Future<void> appSetup = () async {
       try {
-        await DatabaseHelper.instance.database;
         await NotificationService().initialize();
+
         // Permission request moved to a background-ish way to avoid blocking
         NotificationService().requestPermissions();
 
         // --- Sync User with Backend (Singleton guard already added) ---
         if (mounted) {
-          final userProvider = Provider.of<UserProvider>(
-            context,
-            listen: false,
-          );
-          await userProvider.syncUser();
+          setState(() => _statusMessage = "Identifying user...");
+          // 3. Initialize Firebase & Sync Global State
+          await AuthService.initialize();
+          if (mounted) {
+            setState(() => _statusMessage = "Restoring your data...");
+            final vehicleProvider =
+                Provider.of<VehicleProvider>(context, listen: false);
+            await vehicleProvider.syncAllData();
+          }
         }
 
         await Workmanager().initialize(
@@ -213,18 +231,53 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          Colors.white, // Lottie usually looks best on white or transparent
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        alignment: Alignment.center,
-        child: Lottie.asset(
-          'assets/animations/car_animation.json',
-          width: double.infinity,
-          fit: BoxFit.fitWidth,
-        ),
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          Container(
+            width: double.infinity,
+            height: double.infinity,
+            alignment: Alignment.center,
+            child: Lottie.asset(
+              'assets/animations/car_animation.json',
+              width: double.infinity,
+              fit: BoxFit.fitWidth,
+            ),
+          ),
+          if (_statusMessage.isNotEmpty)
+            Positioned(
+              bottom: 100,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _statusMessage,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        color: Colors.blueGrey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 }
+

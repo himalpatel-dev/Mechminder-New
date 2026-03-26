@@ -8,6 +8,8 @@ import '../core/api_constants.dart';
 import '../widgets/full_screen_photo_viewer.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import '../service/notification_service.dart';
+import '../service/vehicle_provider.dart';
+
 
 class OverviewTab extends StatefulWidget {
   final int vehicleId;
@@ -161,8 +163,11 @@ class OverviewTabState extends State<OverviewTab> {
       }
 
       // --- TRIGGER REAL-TIME NOTIFICATIONS ---
+      final vehicleProvider = Provider.of<VehicleProvider>(context, listen: false);
+      await vehicleProvider.syncAllData(); // Refresh the global state first
+
       await NotificationService().checkAndShowOdometerReminders(
-        vehicleId: widget.vehicleId,
+        reminders: vehicleProvider.reminders.where((r) => r['vehicle_id'] == widget.vehicleId).toList(),
         currentOdometer: newOdometer,
         unitType: Provider.of<SettingsProvider>(
           context,
@@ -177,6 +182,7 @@ class OverviewTabState extends State<OverviewTab> {
 
     loadData();
   }
+
 
   // --- NEW: Copied from Reminders Tab ---
   void _showSnoozeDialog(

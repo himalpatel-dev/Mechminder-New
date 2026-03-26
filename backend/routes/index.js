@@ -10,6 +10,8 @@ const authController = require('../controllers/authController');
 
 const { identifyUser } = require('../middleware/authMiddleware');
 const userController = require('../controllers/userController');
+const backupController = require('../controllers/backupController');
+
 
 // Apply user identification middleware to all routes
 router.use(identifyUser);
@@ -20,6 +22,13 @@ router.use(identifyUser);
 
 router.post('/users/fcm-token', userController.updateFcmToken);
 router.post('/users/purchase-link', userController.linkPurchase);
+router.post('/users/test-notification', userController.sendTestNotification);
+
+// Cloud Backup & Restore
+router.post('/backup', backupController.backupData);
+router.get('/restore', backupController.restoreData);
+
+
 
 
 // Vehicles

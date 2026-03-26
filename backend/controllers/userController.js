@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const admin = require('../config/firebase');
+
 
 // Update FCM Token with Change Counter
 exports.updateFcmToken = async (req, res) => {
@@ -73,3 +75,58 @@ exports.linkPurchase = async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 };
+
+// Send Test Notification to all users with valid FCM tokens
+exports.sendTestNotification = async (req, res) => {
+    try {
+        const { title, body, data } = req.body;
+
+        if (!title || !body) {
+            return res.status(400).json({ error: 'title and body are required' });
+        }
+
+        // 1. Fetch all users who have an fcm_token
+        const users = await User.findAll({
+            where: {
+                fcm_token: {
+                    [require('sequelize').Op.ne]: null,
+                    [require('sequelize').Op.ne]: ''
+                }
+            }
+        });
+
+        if (!users || users.length === 0) {
+            return res.status(404).json({ message: 'No users found with FCM tokens' });
+        }
+
+        const tokens = users.map(user => user.fcm_token);
+        console.log(`Sending notification to ${tokens.length} users...`);
+
+        // 2. Prepare the multicast message
+        const message = {
+            notification: {
+                title: title,
+                body: body,
+            },
+            data: data || {},
+            tokens: tokens,
+        };
+
+        // 3. Send Notification via Firebase Admin
+        const response = await admin.messaging().sendEachForMulticast(message);
+
+        console.log('FCM Response:', response);
+
+        res.json({
+            success: true,
+            total_sent: response.successCount,
+            total_failed: response.failureCount,
+            responses: response.responses
+        });
+
+    } catch (error) {
+        console.error('Error sending test notification:', error);
+        res.status(500).json({ error: 'Failed to send notification', details: error.message });
+    }
+};
+
