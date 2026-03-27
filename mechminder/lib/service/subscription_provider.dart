@@ -24,8 +24,10 @@ class SubscriptionProvider with ChangeNotifier {
   bool _isTrialActive = true;
   bool _loading = true;
   int _daysLeft = 15;
+  String? _purchaseID;
 
   bool get isPremium => _isPremium;
+  String? get purchaseID => _purchaseID;
   bool get isTrialActive => _isTrialActive;
   bool get isLoading => _loading;
   int get daysLeft => _daysLeft;
@@ -121,8 +123,8 @@ class SubscriptionProvider with ChangeNotifier {
           // Handle error
         } else if (purchaseDetails.status == PurchaseStatus.purchased ||
             purchaseDetails.status == PurchaseStatus.restored) {
+          _purchaseID = purchaseDetails.purchaseID;
           _grantPremium();
-          // --- NEW: Update Backend with Purchase ID ---
           _userProvider?.updatePurchase(purchaseDetails.purchaseID ?? "purchased_item");
         }
 

@@ -374,6 +374,8 @@ class _HomeScreenState extends State<HomeScreen>
         ),
 
         body: TabBarView(
+          // --- NEW: Disable swiping between tabs ---
+          physics: const NeverScrollableScrollPhysics(),
           // --- TabBarView uses the TabController ---
           controller: _tabController,
           children: [

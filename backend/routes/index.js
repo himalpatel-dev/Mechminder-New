@@ -23,6 +23,7 @@ router.use(identifyUser);
 router.post('/users/fcm-token', userController.updateFcmToken);
 router.post('/users/purchase-link', userController.linkPurchase);
 router.post('/users/test-notification', userController.sendTestNotification);
+router.post('/users/send-daily-reminders', userController.sendDailyReminders);
 
 // Cloud Backup & Restore
 router.post('/backup', backupController.backupData);

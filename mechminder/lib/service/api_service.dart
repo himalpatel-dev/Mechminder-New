@@ -496,6 +496,7 @@ class ApiService {
     String uid,
     String purchaseId, {
     String? fcmToken,
+    String? deviceId,
   }) async {
     await ApiClient.request(
       method: 'POST',
@@ -504,6 +505,7 @@ class ApiService {
         'firebase_uid': uid,
         'purchase_id': purchaseId,
         if (fcmToken != null) 'fcm_token': fcmToken,
+        if (deviceId != null) 'device_id': deviceId,
       },
     );
   }

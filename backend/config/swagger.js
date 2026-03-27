@@ -10,6 +10,10 @@ const options = {
         },
         servers: [
             {
+                url: 'https://apimech.krimal.in/api',
+                description: 'Production server',
+            },
+            {
                 url: 'http://localhost:5000/api',
                 description: 'Development server',
             },

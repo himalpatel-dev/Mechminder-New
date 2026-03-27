@@ -6,7 +6,10 @@ const User = sequelize.define('User', {
     firebase_uid: { type: DataTypes.STRING, unique: true, allowNull: false },
     fcm_token: { type: DataTypes.STRING, allowNull: true },
     purchase_id: { type: DataTypes.STRING, unique: true, allowNull: true },
-    fcm_token_change_count: { type: DataTypes.INTEGER, defaultValue: 0 }
+    trial_start_date: { type: DataTypes.DATEONLY, allowNull: true },
+    device_id: { type: DataTypes.STRING, allowNull: true },
+    fcm_token_change_count: { type: DataTypes.INTEGER, defaultValue: 0 },
+    notification_count: { type: DataTypes.INTEGER, defaultValue: 0 }
 }, {
     tableName: 'tbl_users',
     timestamps: true,

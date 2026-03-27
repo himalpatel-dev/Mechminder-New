@@ -1,6 +1,5 @@
 class ApiConstants {
-  //static const String serverUrl = 'http://192.168.29.155:5000';
-  static const String serverUrl = 'http://192.168.27.58:5000';
+  static const String serverUrl = 'https://apimech.krimal.in';
   static const String baseUrl = '$serverUrl/api';
 
   // Auth
@@ -46,9 +45,8 @@ class ApiConstants {
   static const String documents = '/documents';
   static const String vehicleDocuments = '/vehicles/{vehicleId}/documents';
   static const String documentDetails = '/documents/{id}';
-  
+
   // Backup & Restore
   static const String backupData = '/backup';
   static const String restoreData = '/restore';
 }
-
