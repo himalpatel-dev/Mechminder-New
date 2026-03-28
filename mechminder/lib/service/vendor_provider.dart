@@ -5,9 +5,16 @@ import '../service/api_service.dart';
 class VendorProvider extends ChangeNotifier {
   List<Vendor> _vendors = [];
   bool _isLoading = false;
+  String? _errorMessage;
 
   List<Vendor> get vendors => _vendors;
   bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
+  }
 
   Future<void> refreshVendors() async {
     _isLoading = true;
@@ -17,7 +24,7 @@ class VendorProvider extends ChangeNotifier {
       final List<dynamic> data = await ApiService.getVendors();
       _vendors = data.map((m) => Vendor.fromMap(m)).toList();
     } catch (e) {
-      debugPrint('Vendor Provider Refresh Error: $e');
+      _errorMessage = "Could not load vendors. Please check connection.";
     } finally {
       _isLoading = false;
       notifyListeners();

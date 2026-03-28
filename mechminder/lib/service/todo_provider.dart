@@ -6,10 +6,17 @@ class TodoProvider extends ChangeNotifier {
   List<Todo> _pendingTodos = [];
   List<Todo> _completedTodos = [];
   bool _isLoading = false;
+  String? _errorMessage;
 
   List<Todo> get pendingTodos => _pendingTodos;
   List<Todo> get completedTodos => _completedTodos;
   bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
+  }
 
   Future<void> refreshTodos() async {
     _isLoading = true;
@@ -22,7 +29,7 @@ class TodoProvider extends ChangeNotifier {
       final List<dynamic> completed = await ApiService.getCompletedTodos();
       _completedTodos = completed.map((t) => Todo.fromMap(t)).toList();
     } catch (e) {
-      debugPrint('Todo Refresh Error: $e');
+      _errorMessage = "Could not refresh tasks. Please try again.";
     } finally {
       _isLoading = false;
       notifyListeners();

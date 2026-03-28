@@ -41,13 +41,28 @@ exports.getDocumentById = async (req, res) => {
 // POST /api/documents
 exports.createDocument = async (req, res) => {
     try {
+        console.log('[Document Create] Body:', req.body);
+        console.log('[Document Create] File:', req.file ? req.file.filename : 'MISSING');
+        console.log('[Document Create] Headers (type):', req.headers['x-parent-type']);
+
         const data = { ...req.body, user_id: req.user.id };
+        
         if (req.file) {
-            data.file_path = `/uploads/vehicles/${req.file.filename}`;
+            // Standardize path to use forward slashes for URL compatibility
+            const parentType = req.headers['x-parent-type'] || 'vehicles';
+            data.file_path = `/uploads/${parentType}/${req.file.filename}`;
         }
+
+        if (!data.file_path) {
+            console.error('[Document Create] Rejected: No file uploaded');
+            return res.status(400).json({ error: 'File is required' });
+        }
+
         const document = await db.Document.create(data);
+        console.log('[Document Create] SUCCESS:', document.id);
         res.status(201).json(document);
     } catch (error) {
+        console.error('[Document Create ERROR]:', error.message);
         res.status(400).json({ error: error.message });
     }
 };
@@ -62,12 +77,14 @@ exports.updateDocument = async (req, res) => {
 
         const data = { ...req.body };
         if (req.file) {
-            data.file_path = `/uploads/vehicles/${req.file.filename}`;
+            const parentType = req.headers['x-parent-type'] || 'vehicles';
+            data.file_path = `/uploads/${parentType}/${req.file.filename}`;
         }
 
         await document.update(data);
         res.json(document);
     } catch (error) {
+        console.error('[Document Update ERROR]:', error.message);
         res.status(400).json({ error: error.message });
     }
 };

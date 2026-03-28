@@ -1,6 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/foundation.dart';
 
 
 // --- THIS IS THE NEW CHANNEL WE WILL CREATE ---
@@ -54,9 +53,7 @@ class NotificationService {
           >()
           ?.createNotificationChannel(channel);
     } catch (e) {
-      if (kDebugMode) {
-        print("Error initializing notifications: $e");
-      }
+      // Silent init fail
     }
   }
 
@@ -75,12 +72,7 @@ class NotificationService {
   static void _onDidReceiveNotificationResponse(
     NotificationResponse notificationResponse,
   ) async {
-    final String? payload = notificationResponse.payload;
-    if (payload != null) {
-      if (kDebugMode) {
-        print('Notification payload: $payload');
-      }
-    }
+    // Handle notification click if needed
   }
 
   Future<void> showImmediateReminder({
@@ -118,10 +110,6 @@ class NotificationService {
       platformDetails,
       payload: 'reminder_id_$id',
     );
-
-    if (kDebugMode) {
-      print("IMMEDIATE notification shown for ID: $id - $title: $body");
-    }
   }
 
   /// Centralized method to check all pending reminders for a vehicle

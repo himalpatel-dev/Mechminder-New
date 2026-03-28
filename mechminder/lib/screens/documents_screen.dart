@@ -370,10 +370,6 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     try {
       setState(() => _isLoading = true);
 
-      final file = File(_tempFilePath!);
-      final bytes = await file.readAsBytes();
-      final name = p.basename(_tempFilePath!);
-
       String finalDocType = _typeController.text == 'Other'
           ? _customTypeController.text
           : _typeController.text;
@@ -384,7 +380,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         'description': _descriptionController.text,
       };
 
-      await ApiService.createDocument(fields, fileName: name, fileBytes: bytes);
+      await ApiService.createDocument(fields, filePath: _tempFilePath!);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

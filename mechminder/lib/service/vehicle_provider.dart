@@ -14,6 +14,7 @@ class VehicleProvider with ChangeNotifier {
   List<dynamic> _photos = [];
 
   bool _isLoading = false;
+  String? _errorMessage;
 
   List<dynamic> get vehicles => _vehicles;
   List<dynamic> get services => _services;
@@ -26,6 +27,12 @@ class VehicleProvider with ChangeNotifier {
   List<dynamic> get documents => _documents;
   List<dynamic> get photos => _photos;
   bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
+  }
 
   // --- Initial Full Sync (The "Restore") ---
   Future<void> syncAllData() async {
@@ -47,7 +54,7 @@ class VehicleProvider with ChangeNotifier {
         _photos = data['photos'] ?? [];
       }
     } catch (e) {
-      debugPrint("VehicleProvider Sync Error: $e");
+      _errorMessage = "Sync failed. Please check connection.";
     } finally {
       _isLoading = false;
       notifyListeners();

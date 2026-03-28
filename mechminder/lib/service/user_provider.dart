@@ -66,7 +66,7 @@ class UserProvider with ChangeNotifier {
           deviceId = iosInfo.identifierForVendor; // Stable on iOS
         }
       } catch (e) {
-        if (kDebugMode) print("Could not capture device ID: $e");
+        // Silently fail device ID capture
       }
 
       final userData = {
@@ -85,7 +85,7 @@ class UserProvider with ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      if (kDebugMode) print("UserProvider syncUser Error: $e");
+      // Error handling is managed by the caller observing the sync state
     } finally {
       // Clear after a small delay to allow immediate duplicate hits to be blocked
       Future.delayed(const Duration(seconds: 2), () => _syncFuture = null);
@@ -143,7 +143,6 @@ class UserProvider with ChangeNotifier {
       }
     } catch (e) {
       _lastPurchaseId = null; // Reset on error
-      if (kDebugMode) print("UserProvider updatePurchase Error: $e");
     }
   }
 }

@@ -13,17 +13,17 @@ const userController = require('../controllers/userController');
 const backupController = require('../controllers/backupController');
 
 
-// Apply user identification middleware to all routes
+// --- CRON JOBS / INTERNAL ---
+router.post('/users/send-daily-reminders', userController.sendDailyReminders);
+
+// Apply user identification middleware to all remaining user routes
 router.use(identifyUser);
 
-
-
 // User Profile & FCM Management
-
 router.post('/users/fcm-token', userController.updateFcmToken);
 router.post('/users/purchase-link', userController.linkPurchase);
 router.post('/users/test-notification', userController.sendTestNotification);
-router.post('/users/send-daily-reminders', userController.sendDailyReminders);
+// (Moved send-daily-reminders above)
 
 // Cloud Backup & Restore
 router.post('/backup', backupController.backupData);

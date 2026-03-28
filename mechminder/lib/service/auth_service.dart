@@ -1,13 +1,16 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
 
 class AuthService {
   static String? _uid;
+  static String? _deviceId;
   static Future<void>? _initFuture;
 
   static String? get uid => _uid;
+  static String? get deviceId => _deviceId;
 
   static Future<void> initialize() {
     _initFuture ??= _realInitialize();
@@ -27,14 +30,27 @@ class AuthService {
           .timeout(const Duration(seconds: 10));
       _uid = userCredential.user?.uid;
 
-      if (kDebugMode) {
-        print("MechMinder: Identified as Anonymous User: $_uid");
+      // New: Capture Device identity for account restoration
+      if (_deviceId == null) {
+        final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+        try {
+          if (Platform.isAndroid) {
+            final androidInfo = await deviceInfo.androidInfo;
+            // First try 'id', then fallback to serial/physical markers if possible
+            _deviceId = androidInfo.id;
+            if (_deviceId == null || _deviceId!.isEmpty || _deviceId == 'unknown') {
+              _deviceId = androidInfo.hardware + androidInfo.model + androidInfo.board;
+            }
+          } else if (Platform.isIOS) {
+            final iosInfo = await deviceInfo.iosInfo;
+            _deviceId = iosInfo.identifierForVendor;
+          }
+        } catch (e) {
+          // Device ID capture is best-effort
+        }
       }
     } catch (e) {
       _initFuture = null; // Clear future to allow retry on error
-      if (kDebugMode) {
-        print("MechMinder Auth Error: $e");
-      }
     }
   }
 
@@ -45,14 +61,17 @@ class AuthService {
     return _uid;
   }
 
+  static Future<String?> getDeviceId() async {
+    if (_deviceId != null) return _deviceId;
+    await initialize();
+    return _deviceId;
+  }
+
   static Future<String?> getFcmToken() async {
     try {
       // Import needed manually if not auto-added
       return await FirebaseMessaging.instance.getToken();
     } catch (e) {
-      if (kDebugMode) {
-        print("MechMinder FCM Error: $e");
-      }
       return null;
     }
   }

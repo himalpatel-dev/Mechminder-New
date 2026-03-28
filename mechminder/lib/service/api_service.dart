@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:http_parser/http_parser.dart';
 import 'api_client.dart';
 import '../core/api_constants.dart';
 
@@ -442,15 +444,21 @@ class ApiService {
 
   static Future<dynamic> createDocument(
     Map<String, String> fields, {
-    String? fileName,
-    List<int>? fileBytes,
+    String? filePath,
   }) async {
     http.MultipartFile? file;
-    if (fileBytes != null && fileName != null) {
-      file = http.MultipartFile.fromBytes(
+    if (filePath != null) {
+      // Determine content type from filename
+      final extension = p.extension(filePath).toLowerCase().replaceAll('.', '');
+      String mimeType = 'application/octet-stream';
+      if (extension == 'pdf') mimeType = 'application/pdf';
+      else if (extension == 'jpg' || extension == 'jpeg') mimeType = 'image/jpeg';
+      else if (extension == 'png') mimeType = 'image/png';
+
+      file = await http.MultipartFile.fromPath(
         'document',
-        fileBytes,
-        filename: fileName,
+        filePath,
+        contentType: MediaType.parse(mimeType),
       );
     }
 
@@ -459,10 +467,13 @@ class ApiService {
       path: ApiConstants.documents,
       fields: fields,
       file: file,
+      headers: {'X-Parent-Type': 'documents'},
     );
     final res = await http.Response.fromStream(streamedRes);
     if (res.statusCode == 201) return json.decode(res.body);
-    return null;
+
+    final errorBody = json.decode(res.body);
+    throw Exception(errorBody['error'] ?? errorBody['message'] ?? 'Upload failed (${res.statusCode})');
   }
 
   static Future<void> deleteDocument(int id) async {

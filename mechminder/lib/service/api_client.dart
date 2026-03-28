@@ -14,8 +14,13 @@ class ApiClient {
     final uid = await AuthService.getUid();
     final url = Uri.parse('${ApiConstants.baseUrl}$path');
 
+    final deviceId = await AuthService.getDeviceId();
+    final fcmToken = await AuthService.getFcmToken();
+
     final finalHeaders = {
       'X-User-Uid': uid ?? '',
+      'X-Device-Id': deviceId ?? '',
+      'X-Fcm-Token': fcmToken ?? '',
       'Content-Type': 'application/json',
       ...?headers,
     };
@@ -47,7 +52,7 @@ class ApiClient {
           throw Exception('Unsupported HTTP method: $method');
       }
 
-      return await requestFunc.timeout(const Duration(seconds: 10));
+      return await requestFunc.timeout(const Duration(seconds: 30));
     } catch (e) {
       // Return a 503 response if timeout or error happens
       return http.Response(json.encode({'error': e.toString()}), 503);
@@ -65,12 +70,26 @@ class ApiClient {
     final uid = await AuthService.getUid();
     final url = Uri.parse('${ApiConstants.baseUrl}$path');
 
+    final deviceId = await AuthService.getDeviceId();
+    final fcmToken = await AuthService.getFcmToken();
+
     final req = http.MultipartRequest(method, url);
     req.headers['X-User-Uid'] = uid ?? '';
+    req.headers['X-Device-Id'] = deviceId ?? '';
+    req.headers['X-Fcm-Token'] = fcmToken ?? '';
     if (headers != null) req.headers.addAll(headers);
     req.fields.addAll(fields);
     if (file != null) req.files.add(file);
 
-    return await req.send();
+    try {
+      return await req.send().timeout(const Duration(seconds: 60));
+    } catch (e) {
+      // Create a mocked failure response for the caller
+      final mock = http.StreamedResponse(
+        Stream.value(utf8.encode(json.encode({'error': 'Upload timed out after 60 seconds.'}))),
+        504,
+      );
+      return mock;
+    }
   }
 }

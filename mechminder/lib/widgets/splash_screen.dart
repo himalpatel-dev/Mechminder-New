@@ -9,7 +9,6 @@ import '../service/subscription_provider.dart';
 import '../service/vehicle_provider.dart';
 import 'package:provider/provider.dart';
 
-
 import '../service/user_provider.dart';
 import '../service/auth_service.dart';
 import '../service/notification_service.dart';
@@ -25,7 +24,7 @@ void callbackDispatcher() {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp();
       }
-      
+
       // Sync User Identity / Refresh FCM Token daily in background
       final uid = await AuthService.getUid();
       if (uid != null) {
@@ -37,21 +36,16 @@ void callbackDispatcher() {
 
       await NotificationService().initialize();
     } catch (e) {
-      if (kDebugMode) print("!!! Background Init Error: $e");
       return Future.value(false);
     }
 
     // 2. Fetch Data from Cloud (Bulk Sync)
     final appData = await ApiService.fetchFullAppState();
     if (appData == null) {
-      if (kDebugMode) print("!!! Background Sync Failed: No data fetched");
       return Future.value(false);
     }
 
     final String today = DateTime.now().toIso8601String().split('T')[0];
-    if (kDebugMode) {
-      print("Background: Checking for reminders/papers due on: $today");
-    }
 
     final List<dynamic> allReminders = appData['reminders'] ?? [];
     final List<dynamic> allVehicles = appData['vehicles'] ?? [];
@@ -86,7 +80,7 @@ void callbackDispatcher() {
         final serviceName =
             reminder['template_name'] ?? reminder['notes'] ?? 'Service';
         final body = 'Your "$serviceName" service is due!';
-        
+
         await NotificationService().showImmediateReminder(
           id: reminderId,
           title: appName,
@@ -103,10 +97,9 @@ void callbackDispatcher() {
           (v) => v['id'] == paper['vehicle_id'],
           orElse: () => null,
         );
-        final String vehicleName =
-            vehicle != null
-                ? '${vehicle['make']} ${vehicle['model']}'
-                : 'Vehicle';
+        final String vehicleName = vehicle != null
+            ? '${vehicle['make']} ${vehicle['model']}'
+            : 'Vehicle';
         final String paperType = paper['paper_type'] ?? 'Paper';
         final String body = 'Your $paperType for $vehicleName expires today!';
 
@@ -119,9 +112,6 @@ void callbackDispatcher() {
       }
     }
 
-    if (kDebugMode) {
-      print("--- Background Sync Task Complete ---");
-    }
     return Future.value(true);
   });
 }
@@ -172,12 +162,18 @@ class _SplashScreenState extends State<SplashScreen> {
         // --- Sync User with Backend (Multi-Level Identity Check) ---
         if (mounted) {
           setState(() => _statusMessage = "Identifying your account...");
-          
+
           await AuthService.initialize();
-          
+
           if (mounted) {
-            final userProvider = Provider.of<UserProvider>(context, listen: false);
-            final subProvider = Provider.of<SubscriptionProvider>(context, listen: false);
+            final userProvider = Provider.of<UserProvider>(
+              context,
+              listen: false,
+            );
+            final subProvider = Provider.of<SubscriptionProvider>(
+              context,
+              listen: false,
+            );
 
             // Wait for subscription provider to at least try loading purchases
             int subRetries = 0;
@@ -188,14 +184,17 @@ class _SplashScreenState extends State<SplashScreen> {
 
             // High Priority: If we have a premium purchase, use that ID to restore account data
             String? currentPurchaseId = subProvider.purchaseID;
-            
+
             // Sync current identity (Purchase ID > UID > FCM Token)
             await userProvider.syncUser(purchaseId: currentPurchaseId);
 
             if (mounted) {
               setState(() => _statusMessage = "Restoring your data...");
-              final vehicleProvider = Provider.of<VehicleProvider>(context, listen: false);
-              
+              final vehicleProvider = Provider.of<VehicleProvider>(
+                context,
+                listen: false,
+              );
+
               // Pull all cloud-synced data for the identified user
               await vehicleProvider.syncAllData();
             }
@@ -215,7 +214,6 @@ class _SplashScreenState extends State<SplashScreen> {
         );
         success = true;
       } catch (e) {
-        if (kDebugMode) print("!!! ERROR DURING APP INIT: $e");
         if (mounted) {
           setState(() {
             _hasError = true;
@@ -344,4 +342,3 @@ class _SplashScreenState extends State<SplashScreen> {
     );
   }
 }
-

@@ -117,7 +117,7 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
         _newImageFiles.add(pickedFile);
       });
     } catch (e) {
-      print("Error picking image: $e");
+      // Quietly fail image picking
     }
   }
 

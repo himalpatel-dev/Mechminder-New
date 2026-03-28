@@ -10,6 +10,7 @@ class SubscriptionProvider with ChangeNotifier {
   void updateUserProvider(UserProvider? provider) {
     _userProvider = provider;
   }
+
   static const String _trialStartDateKey = 'trial_start_date_v1';
   static const String _premiumOverrideKey = 'premium_override_enabled';
   static const int _trialDurationDays = 15;
@@ -125,7 +126,9 @@ class SubscriptionProvider with ChangeNotifier {
             purchaseDetails.status == PurchaseStatus.restored) {
           _purchaseID = purchaseDetails.purchaseID;
           _grantPremium();
-          _userProvider?.updatePurchase(purchaseDetails.purchaseID ?? "purchased_item");
+          _userProvider?.updatePurchase(
+            purchaseDetails.purchaseID ?? "purchased_item",
+          );
         }
 
         if (purchaseDetails.pendingCompletePurchase) {

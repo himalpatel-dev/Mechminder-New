@@ -5,9 +5,16 @@ import '../service/api_service.dart';
 class TemplateProvider extends ChangeNotifier {
   List<ServiceTemplate> _templates = [];
   bool _isLoading = false;
+  String? _errorMessage;
 
   List<ServiceTemplate> get templates => _templates;
   bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
+  }
 
   Future<void> refreshTemplates() async {
     _isLoading = true;
@@ -17,7 +24,7 @@ class TemplateProvider extends ChangeNotifier {
       final List<dynamic> data = await ApiService.getTemplates();
       _templates = data.map((m) => ServiceTemplate.fromMap(m)).toList();
     } catch (e) {
-      debugPrint('Template Provider Refresh Error: $e');
+      _errorMessage = "Could not load templates. Error: $e";
     } finally {
       _isLoading = false;
       notifyListeners();

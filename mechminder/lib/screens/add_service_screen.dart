@@ -185,7 +185,7 @@ class _AddServiceScreenState extends State<AddServiceScreen> {
         });
       }
     } catch (e) {
-      print("Error picking image: $e");
+      // Quietly fail image picking
     }
   }
 

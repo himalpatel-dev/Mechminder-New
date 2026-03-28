@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -175,9 +174,7 @@ class OverviewTabState extends State<OverviewTab> {
         ).unitType,
       );
     } catch (e) {
-      if (kDebugMode) {
-        print("Error saving odometer or triggering notification: $e");
-      }
+      // Failed silently
     }
 
     loadData();

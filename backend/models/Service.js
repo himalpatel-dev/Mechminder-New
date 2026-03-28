@@ -9,7 +9,6 @@ const Service = sequelize.define('Service', {
   odometer: { type: DataTypes.INTEGER },
   total_cost: { type: DataTypes.FLOAT },
   vendor_id: { type: DataTypes.INTEGER },
-  template_id: { type: DataTypes.INTEGER },
   notes: { type: DataTypes.TEXT },
   created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }
 }, {

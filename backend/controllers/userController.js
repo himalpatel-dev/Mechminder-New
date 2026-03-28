@@ -15,26 +15,35 @@ exports.updateFcmToken = async (req, res) => {
         // Check 1: Purchase ID (Best)
         // Check 2: Device ID (Local device context)
         let existingUser = null;
-        if (purchase_id) {
-            existingUser = await User.findOne({ where: { purchase_id } });
-        }
-        if (!existingUser && device_id) {
+        if (device_id) {
             existingUser = await User.findOne({ where: { device_id } });
+        }
+        if (!existingUser && purchase_id) {
+            existingUser = await User.findOne({ where: { purchase_id } });
         }
 
         if (existingUser) {
-            // Re-link to existing account if UID matches OR it's a new UID reinstall
+            // Check if UID is different (Restore Case)
             if (existingUser.firebase_uid !== firebase_uid) {
+                // IMPORTANT: Check if the new_uid was ALREADY created as a placeholder record
+                const placeholder = await User.findOne({ where: { firebase_uid } });
+                if (placeholder && placeholder.id !== existingUser.id) {
+                    // It likely has no data yet, so we delete it to allow re-linking the OLD account to this UID
+                    await placeholder.destroy();
+                }
+
                 console.log(`[Identity Restore] Linking new UID ${firebase_uid} via ${purchase_id ? 'Purchase' : 'Device'} ID`);
                 existingUser.firebase_uid = firebase_uid;
                 existingUser.fcm_token = fcm_token;
                 existingUser.fcm_token_change_count += 1;
+                
                 if (trial_start_date && !existingUser.trial_start_date) {
                     existingUser.trial_start_date = trial_start_date;
                 }
                 if (device_id && !existingUser.device_id) {
                     existingUser.device_id = device_id;
                 }
+                
                 await existingUser.save();
                 return res.json({ success: true, message: 'Account restored', user: existingUser });
             }

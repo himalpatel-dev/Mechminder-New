@@ -387,14 +387,12 @@ class ExcelService {
       final filePath = '${directory.path}/$fileName';
 
       await File(filePath).writeAsBytes(fileBytes);
-      print("Report file created at: $filePath");
 
       final xfile = XFile(filePath);
       await Share.shareXFiles([xfile], subject: '$vehicleName Service Report');
 
       return 'Report generated!'; // Success message
     } catch (e) {
-      print("Error creating Excel report: $e");
       return "An error occurred: $e";
     }
   }

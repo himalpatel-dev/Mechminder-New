@@ -60,7 +60,6 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint("Error loading service details: $e");
       if (mounted) {
         ScaffoldMessenger.of(
           context,

@@ -62,8 +62,6 @@
  *           type: number
  *         vendor_id:
  *           type: integer
- *         template_id:
- *           type: integer
  *         notes:
  *           type: string
  *         ServiceItems:
@@ -149,7 +147,7 @@
  *           type: string
  *         description:
  *           type: string
- *         interval_months:
+ *         interval_days:
  *           type: integer
  *         interval_km:
  *           type: integer
